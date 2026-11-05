@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>설정 · 방울톡톡</title>
+<meta name="theme-color" content="#2f6b3f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="방울톡톡">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page-wrap" style="max-width:720px">
+  <div class="top-bar">
+    <a class="pill-link" href="index.html">← 홈</a>
+  </div>
+
+  <h1>⚙️ 설정</h1>
+  <p class="desc">기준값을 바꾸고, 구글시트가 잘 연결됐는지 확인할 수 있어요.</p>
+
+  <!-- 1. 기준값 -->
+  <section class="panel">
+    <h2>🌡️ 토양수분 기준</h2>
+    <p class="hint">화분 상태를 "물 필요 / 촉촉함 / 너무 많음"으로 나누는 기준이에요. 이 기기(휴대폰·컴퓨터)에만 저장돼요.</p>
+
+    <div class="field">
+      <label for="dryMax">물 필요 기준<small>이 값보다 낮으면 빨간색</small></label>
+      <input id="dryMax" type="number" inputmode="numeric" min="0" max="100" step="1">
+    </div>
+    <div class="field">
+      <label for="wetMin">너무 많음 기준<small>이 값보다 높으면 주황색</small></label>
+      <input id="wetMin" type="number" inputmode="numeric" min="0" max="100" step="1">
+    </div>
+    <div class="field">
+      <label for="refreshSec">자동 새로고침<small>얼마나 자주 새 값을 불러올지</small></label>
+      <select id="refreshSec">
+        <option value="10">10초</option>
+        <option value="30">30초</option>
+        <option value="60">1분</option>
+        <option value="300">5분</option>
+      </select>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="saveBtn">저장</button>
+      <button class="btn" id="resetBtn">기본값으로</button>
+      <span class="saved-msg" id="savedMsg"></span>
+    </div>
+  </section>
+
+  <!-- 2. 자동 관수 (예정) -->
+  <section class="panel">
+    <h2>🚿 자동 관수</h2>
+    <p class="hint" style="margin:0">
+      관수 시스템을 연결하면, 토양수분이 "물 필요 기준" 아래로 내려갈 때 ESP32가 펌프를 자동으로 켜도록 만들 예정이에요.
+      (A·C 구역 = 센서 기반 자동, B·D 구역 = 정해진 시간 타이머) — 지금은 화면 표시만 됩니다.
+    </p>
+  </section>
+
+  <!-- 3. 센서 보정 -->
+  <section class="panel" id="calibration">
+    <h2>📟 토양수분 센서 보정</h2>
+    <p class="hint">
+      시트의 <b>soil_pct</b> 열이 비어 있으면, <b>soil_raw</b>(센서 원시값)를 아래 보정값으로 %로 바꿔서 보여줘요.
+      센서마다 값이 조금씩 달라서 화분별로 한 번씩 재서 <b>config.js</b>의 <b>SOIL_CALIBRATION</b>에 넣어주세요.
+    </p>
+    <ol class="steps" style="margin-bottom:12px">
+      <li>센서를 흙에서 살짝 빼서 <b>공기 중</b>에 1분 들고 있기 → 아래 표의 "지금 센서값" = <b>dry</b></li>
+      <li>센서를 <b>물컵에 흰 선 높이까지</b> 담그고 1분 → "지금 센서값" = <b>wet</b></li>
+      <li>config.js 에 <code>A1: { dry: 2650, wet: 1020 },</code> 처럼 적고 저장</li>
+    </ol>
+    <button class="btn" id="calBtn">지금 센서값 보기</button>
+    <div id="calResult" style="margin-top:12px"></div>
+  </section>
+
+  <!-- 4. 연결 확인 -->
+  <section class="panel">
+    <h2>🔌 구글시트 연결 확인</h2>
+    <p class="hint">버튼을 누르면 시트를 실제로 읽어 보고, 어떤 열을 무엇으로 인식했는지 보여줘요.</p>
+    <dl class="kv">
+      <dt>시트 ID</dt><dd id="cfgId"></dd>
+      <dt>탭 이름</dt><dd id="cfgTab"></dd>
+    </dl>
+    <button class="btn primary" id="testBtn">연결 확인하기</button>
+    <div id="testResult" style="margin-top:12px"></div>
+  </section>
+
+  <!-- 5. 휴대폰 홈 화면에 추가 -->
+  <section class="panel">
+    <h2>📱 휴대폰 홈 화면에 앱처럼 추가하기</h2>
+    <p class="hint" style="margin-bottom:6px"><b>아이폰 (Safari)</b></p>
+    <ol class="steps">
+      <li>Safari로 이 사이트 주소를 엽니다.</li>
+      <li>아래쪽 가운데 <b>공유 버튼(□↑)</b>을 누릅니다.</li>
+      <li><b>"홈 화면에 추가"</b> → 오른쪽 위 <b>"추가"</b>.</li>
+    </ol>
+    <p class="hint" style="margin:12px 0 6px"><b>안드로이드 (Chrome / 삼성 인터넷)</b></p>
+    <ol class="steps">
+      <li>Chrome으로 이 사이트 주소를 엽니다.</li>
+      <li>오른쪽 위 <b>⋮ 메뉴</b> (삼성 인터넷은 아래 ≡ 메뉴)를 누릅니다.</li>
+      <li><b>"홈 화면에 추가"</b> 또는 <b>"앱 설치"</b>를 누릅니다.</li>
+    </ol>
+  </section>
+
+  <footer>방울톡톡 · 스마트농산업학과 개척학기제</footer>
+</div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function fillForm(s) {
+  $("dryMax").value = s.dryMax;
+  $("wetMin").value = s.wetMin;
+  $("refreshSec").value = String(s.refreshSec);
+}
+fillForm(getSettings());
+
+$("saveBtn").addEventListener("click", () => {
+  const dryMax = Number($("dryMax").value);
+  const wetMin = Number($("wetMin").value);
+  const refreshSec = Number($("refreshSec").value);
+  if (!(dryMax >= 0 && dryMax <= 100 && wetMin >= 0 && wetMin <= 100)) {
+    $("savedMsg").textContent = "0~100 사이 숫자를 넣어주세요"; return;
+  }
+  if (dryMax >= wetMin) {
+    $("savedMsg").textContent = "'물 필요 기준'이 '너무 많음 기준'보다 작아야 해요"; return;
+  }
+  const ok = saveSettings({ dryMax, wetMin, refreshSec });
+  $("savedMsg").textContent = ok ? "✓ 저장했어요" : "이 브라우저에서는 저장이 안 돼요 (개인정보 보호 모드인지 확인)";
+});
+
+$("resetBtn").addEventListener("click", () => {
+  resetSettings();
+  fillForm(getSettings());
+  $("savedMsg").textContent = "✓ 기본값으로 돌렸어요";
+});
+
+$("calBtn").addEventListener("click", async () => {
+  const out = $("calResult");
+  out.innerHTML = `<p class="desc">불러오는 중...</p>`;
+  try {
+    const data = await fetchLatestByPot();
+    out.innerHTML = `
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>화분</th><th>지금 센서값</th><th>보정값 (dry / wet)</th><th>계산된 %</th><th>측정</th></tr></thead>
+        <tbody>${POT_IDS.map((id) => {
+          const d = data[id];
+          const c = SOIL_CALIBRATION[id];
+          return `<tr>
+            <td><b>${id}</b></td>
+            <td>${d?.soilRaw ?? "-"}</td>
+            <td>${c ? `${c.dry} / ${c.wet}` : `<span style="color:var(--warning-ink)">미입력 (기본 ${SOIL_CALIBRATION_DEFAULT.dry} / ${SOIL_CALIBRATION_DEFAULT.wet})</span>`}</td>
+            <td>${d?.soil != null ? d.soil.toFixed(1) + "%" : "-"}</td>
+            <td>${d?.time ? formatAgo(d.time) : "-"}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>
+      <p class="desc" style="margin-top:6px">센서를 공기/물에 넣은 뒤 1분쯤 기다렸다가 다시 누르면 새 값이 나와요.</p>`;
+  } catch (e) {
+    out.innerHTML = `<div class="alert critical">❌ ${escapeHtml(e.message)}</div>`;
+  }
+});
+
+$("cfgId").textContent = isConfigured() ? CONFIG.SHEET_ID : "아직 안 넣었어요 (config.js 수정 필요)";
+$("cfgTab").textContent = CONFIG.SHEET_NAME;
+
+$("testBtn").addEventListener("click", async () => {
+  const out = $("testResult");
+  out.innerHTML = `<div class="alert warning">확인 중...</div>`;
+  try {
+    const { records, detected, rowCount, totalRows } = await fetchRecords(30);
+    const { format, map, wide, labels } = detected;
+
+    const mapRows = [];
+    if (format === "wide") {
+      Object.entries(wide).forEach(([pot, i]) => mapRows.push([`화분 ${pot} 토양수분`, labels[i] || `${i + 1}번째 열`]));
+    }
+    Object.entries(map).forEach(([key, i]) => mapRows.push([KEY_LABELS[key], labels[i] || `${i + 1}번째 열 (제목 없음)`]));
+
+    const warnings = [];
+    if (!records.length) warnings.push("시트는 읽었지만 화분 데이터로 바꿀 수 있는 줄이 없어요. 아래 '찾은 열'이 맞는지 확인해 주세요.");
+    if (map.time == null) warnings.push("시간 열을 찾지 못했어요. 첫 줄 제목에 '시간' 또는 'timestamp'를 넣어주세요.");
+    if (records.some((r) => r.soilSource === "pct" && r.soil > 100)) warnings.push("토양수분 % 값이 100보다 커요. 센서 원시값이 % 열에 들어가 있는 건 아닌지 확인해 주세요.");
+    const rawUsed = records.some((r) => r.soilSource === "raw");
+    if (rawUsed) warnings.push(`토양수분 % 열(${escapeHtml(labels[map.soilPct] || "soil_pct")})이 비어 있어서, 센서 원시값(${escapeHtml(labels[map.soilRaw] || "soil_raw")})을 보정값으로 %로 바꿔서 보여줘요. 위의 '센서 보정'을 꼭 해주세요.`);
+    const cells = (totalRows || 0) * detected.labels.length;
+    if (cells > 7000000) warnings.push(`시트에 데이터가 약 ${Math.round(totalRows / 10000)}만 줄(셀 약 ${Math.round(cells / 10000)}만 개) 쌓였어요. 구글시트 한 파일의 한도는 1,000만 셀이라 곧 더 이상 기록이 안 될 수 있어요.`);
+    const unknown = [...new Set(records.map((r) => r.pot).filter((p) => !POT_CONFIG[p]))];
+    if (unknown.length) warnings.push(`화분 이름을 알 수 없어요: ${unknown.map(escapeHtml).join(", ")} (A1~D2 형식이어야 해요)`);
+    const found = new Set(records.map((r) => r.pot).filter((p) => POT_CONFIG[p]));
+
+    out.innerHTML = `
+      <div class="alert good">✅ <b>연결 성공!</b> 시트 전체 ${totalRows ? totalRows.toLocaleString() + "줄 중 " : ""}최근 ${rowCount}줄을 읽었고, 화분 ${found.size}개의 데이터를 찾았어요.
+        <br>시트 모양: ${format === "wide" ? "한 줄에 여러 화분 (A1, A2... 열)" : "한 줄에 화분 하나"}</div>
+      ${warnings.map((w) => `<div class="alert warning" style="margin-top:8px">⚠️ ${w}</div>`).join("")}
+      <p class="hint" style="margin:14px 0 6px"><b>찾은 열</b></p>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>항목</th><th>시트의 열 제목</th></tr></thead>
+        <tbody>${mapRows.map(([a, b]) => `<tr><td>${a}</td><td>${escapeHtml(b)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <p class="hint" style="margin:14px 0 6px"><b>최근 데이터 5개 (변환된 결과)</b></p>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>시간</th><th>화분</th><th>토양수분</th><th>온도</th><th>습도</th><th>조도</th></tr></thead>
+        <tbody>${records.slice(-5).reverse().map((r) => `
+          <tr><td>${escapeHtml(formatTime(r.time, r.timestamp))}</td><td>${escapeHtml(r.pot)}</td>
+          <td>${r.soil ?? "-"}${r.soilSource === "raw" ? ` <small>(센서 ${r.soilRaw})</small>` : ""}</td><td>${r.temp ?? "-"}</td><td>${r.humidity ?? "-"}</td><td>${r.light ?? "-"}</td></tr>`).join("")}
+        </tbody>
+      </table></div>`;
+  } catch (err) {
+    out.innerHTML = `
+      <div class="alert critical">❌ <b>연결 실패:</b> ${escapeHtml(err.message)}</div>
+      <p class="hint" style="margin:12px 0 4px"><b>이렇게 확인해 보세요</b></p>
+      <ol class="steps">
+        <li><b>config.js</b> 의 SHEET_ID 가 시트 주소의 /d/ 와 /edit 사이 문자열과 같은지</li>
+        <li>시트 오른쪽 위 <b>공유</b> → 일반 액세스가 <b>"링크가 있는 모든 사용자" + "뷰어"</b>인지</li>
+        <li>SHEET_NAME 이 시트 아래 탭 이름과 <b>글자 하나까지</b> 같은지 (띄어쓰기 포함)</li>
+        <li>파일을 더블클릭으로 연 게 아니라 <b>Live Server</b> 또는 GitHub Pages 주소로 열었는지</li>
+      </ol>`;
+  }
+});
+</script>
+</body>
+</html>
