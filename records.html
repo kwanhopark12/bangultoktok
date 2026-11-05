@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>나의 식물의 기록 · 방울톡톡</title>
+<meta name="theme-color" content="#2f6b3f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="방울톡톡">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page-wrap">
+  <div class="top-bar">
+    <a class="pill-link" href="index.html">← 홈</a>
+    <a class="pill-link" href="settings.html">⚙️ 설정</a>
+  </div>
+
+  <h1>📈 나의 식물의 기록</h1>
+  <p class="desc">토양수분 · 온도 · 습도 · 햇빛 변화를 한눈에 볼 수 있어요. 그래프를 손가락으로 훑으면 그때의 값이 보여요.</p>
+
+  <div class="status-bar">
+    <span><span id="statusDot" class="status-dot"></span><span id="statusText">연결 확인 중...</span></span>
+    <span id="lastUpdated"></span>
+    <button class="btn" id="refreshBtn">새로고침</button>
+  </div>
+
+  <div class="range-toggle">
+    <button class="btn" data-range="24">최근 24시간</button>
+    <button class="btn active" data-range="168">최근 7일</button>
+    <button class="btn" data-range="720">최근 30일</button>
+    <button class="btn" data-range="all">전체</button>
+  </div>
+
+  <div class="jump-links">
+    <a class="pill-link" href="#soilSection">🪴 토양수분</a>
+    <a class="pill-link" href="#envSection">🌤️ 온도 · 습도 · 햇빛</a>
+  </div>
+  <p class="desc" id="modeNote"></p>
+
+  <h2 class="section-title" id="soilSection">🪴 화분별 토양수분</h2>
+  <div class="legend" id="legend"></div>
+  <div class="records-grid" id="recordsGrid"></div>
+
+  <h2 class="section-title" id="envSection">🌤️ 온도 · 습도 · 햇빛</h2>
+  <p class="desc">온습도 센서는 A·B 구역 보드(BD1)에 1개 있고, 햇빛은 LED 구역과 자연광 구역을 따로 보여줘요.</p>
+  <div class="env-grid" id="envGrid"></div>
+
+  <button class="btn" id="tableToggle">최근 측정값을 표로 보기 ▾</button>
+  <div id="tableArea" hidden style="margin-top:10px"></div>
+
+  <footer>그래프 세로축은 토양수분 0~100%예요.</footer>
+</div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="charts.js"></script>
+<script>
+const settings = getSettings();
+let rangeHours = 168;      // 기본: 최근 7일 (null = 전체)
+let lastHistory = null;
+let demoMode = false;
+
+document.getElementById("legend").innerHTML = `
+  <span><i style="background:#2a78d6"></i> 토양수분</span>
+  <span><i style="background:#0ca30c;opacity:.25"></i> 적정 범위 (${settings.dryMax}~${settings.wetMin}%)</span>`;
+
+function filterRange(history) {
+  if (!rangeHours) return history;
+  const cutoff = Date.now() - rangeHours * 3600 * 1000;
+  const out = {};
+  POT_IDS.forEach((id) => {
+    out[id] = (history[id] || []).filter((r) => !r.time || r.time.getTime() >= cutoff);
+  });
+  return out;
+}
+
+function render(history) {
+  lastHistory = history;
+  const shown = demoMode ? filterRange(history) : history;
+  const grid = document.getElementById("recordsGrid");
+  grid.innerHTML = "";
+
+  POT_IDS.forEach((id) => {
+    const hist = shown[id] || [];
+    const stats = calcStats(hist);
+    const chart = renderTrendChart(hist);
+    const fmt = (v) => (v == null ? "-" : v.toFixed(1) + "%");
+
+    const card = document.createElement("div");
+    card.className = "record-card";
+    card.innerHTML = `
+      <div class="record-card-top">
+        <span class="pot-id">${id}</span>
+        <span class="group-tag">${POT_CONFIG[id].group}</span>
+      </div>
+      <div class="chart-box">${chart.html}</div>
+      <div class="stat-row">
+        <span>최근<b>${fmt(stats?.current)}</b></span>
+        <span>최저<b>${fmt(stats?.min)}</b></span>
+        <span>평균<b>${fmt(stats?.avg)}</b></span>
+        <span>최고<b>${fmt(stats?.max)}</b></span>
+      </div>`;
+    grid.appendChild(card);
+    attachChartHover(card.querySelector(".chart-box"), chart.points);
+  });
+
+  renderEnvCharts(shown);
+
+  const meta = history._meta || {};
+  const note = document.getElementById("modeNote");
+  if (demoMode) note.textContent = "";
+  else if (meta.mode === "hour") note.textContent = "그래프의 점 하나 = 1시간 평균이에요.";
+  else if (meta.mode === "day") note.textContent = "그래프의 점 하나 = 하루 평균이에요.";
+  else if (meta.limited) note.textContent = `기록이 많아서 시트의 최근 ${CONFIG.HISTORY_ROWS.toLocaleString()}줄만 보여줘요. (시트 첫 열이 날짜 형식이면 전체를 볼 수 있어요)`;
+  else note.textContent = "";
+
+  document.getElementById("lastUpdated").textContent =
+    "확인: " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// 온도 · 습도 · 햇빛 그래프 3개
+function renderEnvCharts(history) {
+  const rows = buildEnvSeries(history);
+  const last = (k) => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i][k] != null) return rows[i][k]; return null; };
+  const charts = [
+    { title: "🌡️ 온도", unit: "°C", decimals: 1, opts: { minSpan: 4 },
+      series: [{ key: "temp", name: "온도", color: "#eb6834" }] },
+    { title: "💦 공기 습도", unit: "%", decimals: 0, opts: { min: 0, max: 100 },
+      series: [{ key: "humidity", name: "습도", color: "#2a78d6" }] },
+    { title: "☀️ 햇빛 (조도)", unit: " lux", decimals: 0, opts: { min: 0 },
+      series: [
+        { key: "lightLed", name: "A·B 구역 (LED)", color: "#2a78d6" },
+        { key: "lightNatural", name: "C·D 구역 (자연광)", color: "#eb6834" },
+      ] },
+  ];
+  const grid = document.getElementById("envGrid");
+  grid.innerHTML = "";
+  charts.forEach((c) => {
+    const chart = renderSeriesChart(rows, c.series, { ...c.opts, unit: c.unit, decimals: c.decimals });
+    const fmt = (v) => (v == null ? "-" : v.toLocaleString(undefined, { maximumFractionDigits: c.decimals }) + c.unit);
+    const card = document.createElement("div");
+    card.className = "record-card";
+    card.innerHTML = `
+      <div class="record-card-top">
+        <span class="pot-id" style="font-size:15px">${c.title}</span>
+        <span class="chart-current">${c.series.length === 1 ? `최근 <b>${fmt(last(c.series[0].key))}</b>` : ""}</span>
+      </div>
+      ${c.series.length > 1 ? `<div class="chart-legend">${c.series.map((s) =>
+        `<span><i style="background:${s.color}"></i>${s.name} <b>${fmt(last(s.key))}</b></span>`).join("")}</div>` : ""}
+      <div class="chart-box">${chart.html}</div>`;
+    grid.appendChild(card);
+    attachSeriesHover(card.querySelector(".chart-box"), chart);
+  });
+}
+
+async function renderTable() {
+  const area = document.getElementById("tableArea");
+  area.innerHTML = `<p class="desc">불러오는 중...</p>`;
+  let rows = [];
+  if (demoMode) {
+    POT_IDS.forEach((id) => (lastHistory?.[id] || []).forEach((r) => rows.push(r)));
+    rows.sort((a, b) => (b.time?.getTime() || 0) - (a.time?.getTime() || 0));
+  } else {
+    try { rows = await fetchRecentRows(300); }
+    catch (e) { area.innerHTML = `<p class="desc">표를 불러오지 못했어요: ${escapeHtml(e.message)}</p>`; return; }
+  }
+  if (!rows.length) { area.innerHTML = `<p class="chart-empty">표시할 기록이 없어요</p>`; return; }
+
+  const n = (v, d, u) => (v == null ? "-" : v.toFixed(d) + u);
+  area.innerHTML = `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>시간</th><th>화분</th><th>토양수분</th><th>센서값</th><th>온도</th><th>습도</th><th>조도</th><th>펌프</th></tr></thead>
+        <tbody>${rows.slice(0, 300).map((r) => `
+          <tr>
+            <td>${escapeHtml(formatTime(r.time, r.timestamp))}</td>
+            <td>${r.pot}</td>
+            <td>${n(r.soil, 1, "%")}</td>
+            <td>${r.soilRaw == null ? "-" : r.soilRaw}</td>
+            <td>${n(r.temp, 1, "°C")}</td>
+            <td>${n(r.humidity, 0, "%")}</td>
+            <td>${r.light == null ? "-" : Math.round(r.light).toLocaleString()}</td>
+            <td>${r.pump ? "급수" : "-"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="desc" style="margin-top:6px">시트 맨 끝(가장 최근) 300줄을 보여줘요.</p>`;
+}
+
+async function refresh() {
+  try {
+    const history = await fetchHistoryByPot(rangeHours);
+    demoMode = false;
+    setStatus("live");
+    render(history);
+  } catch (err) {
+    console.warn(err);
+    demoMode = true;
+    setStatus(isConfigured() ? "error" : "demo", isConfigured() ? err.message : "");
+    render(getDemoHistory());
+  }
+}
+
+document.querySelectorAll("[data-range]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-range]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    rangeHours = btn.dataset.range === "all" ? null : Number(btn.dataset.range);
+    if (demoMode && lastHistory) render(lastHistory);
+    else runNow();
+  });
+});
+
+document.getElementById("tableToggle").addEventListener("click", (e) => {
+  const area = document.getElementById("tableArea");
+  area.hidden = !area.hidden;
+  e.target.textContent = area.hidden ? "최근 측정값을 표로 보기 ▾" : "표 접기 ▴";
+  if (!area.hidden) renderTable();
+});
+
+const runNow = startAutoRefresh(refresh, 120); // 기록은 양이 많아서 최소 2분 간격
+document.getElementById("refreshBtn").addEventListener("click", runNow);
+</script>
+</body>
+</html>

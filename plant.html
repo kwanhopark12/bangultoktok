@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>나의 식물 · 방울톡톡</title>
+<meta name="theme-color" content="#2f6b3f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="방울톡톡">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page-wrap">
+  <div class="top-bar">
+    <a class="pill-link" href="index.html">← 홈</a>
+    <a class="pill-link" href="settings.html">⚙️ 설정</a>
+  </div>
+
+  <h1>🌱 나의 식물</h1>
+  <p class="desc">화분 8개의 토양수분과 온도 · 습도 · 햇빛을 실시간으로 보여줘요.</p>
+
+  <div class="status-bar">
+    <span><span id="statusDot" class="status-dot"></span><span id="statusText">연결 확인 중...</span></span>
+    <span id="lastUpdated"></span>
+    <button class="btn" id="refreshBtn">새로고침</button>
+  </div>
+
+  <div class="alerts" id="alerts"></div>
+
+  <div class="env-tiles" id="envTiles"></div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="grid" id="grid"></div>
+
+  <footer id="footerText"></footer>
+</div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="gauge.js"></script>
+<script>
+const settings = getSettings();
+
+document.getElementById("legend").innerHTML = `
+  <span><i style="background:${STATUS_INFO.dry.color}"></i> 물 필요 (${settings.dryMax}% 미만)</span>
+  <span><i style="background:${STATUS_INFO.optimal.color}"></i> 촉촉함 (${settings.dryMax}~${settings.wetMin}%)</span>
+  <span><i style="background:${STATUS_INFO.wet.color}"></i> 너무 많음 (${settings.wetMin}% 초과)</span>`;
+document.getElementById("footerText").textContent =
+  `방울톡톡 · ${settings.refreshSec}초마다 자동으로 새로고침돼요`;
+
+function renderAlerts(data, live) {
+  const dry = POT_IDS.filter((id) => classifyMoisture(data[id]?.soil) === "dry");
+  const wet = POT_IDS.filter((id) => classifyMoisture(data[id]?.soil) === "wet");
+  const html = [];
+
+  if (dry.length) html.push(`<div class="alert critical">🌵 <b>물이 필요한 화분: ${dry.join(", ")}</b><br>토양수분이 ${settings.dryMax}% 아래로 내려갔어요.</div>`);
+  if (wet.length) html.push(`<div class="alert serious">💧 <b>물이 너무 많은 화분: ${wet.join(", ")}</b><br>당분간 물을 주지 않는 게 좋아요.</div>`);
+  if (!dry.length && !wet.length) html.push(`<div class="alert good">✅ <b>모든 화분이 적당히 촉촉해요</b></div>`);
+
+  // 센서 데이터가 오래 안 들어오면 경고 (ESP32 전원/와이파이 문제 확인용)
+  if (live) {
+    const times = POT_IDS.map((id) => data[id]?.time).filter(Boolean);
+    if (times.length) {
+      const newest = new Date(Math.max(...times.map((t) => t.getTime())));
+      const minutes = (Date.now() - newest.getTime()) / 60000;
+      if (minutes > CONFIG.STALE_MINUTES) {
+        html.push(`<div class="alert warning">⚠️ <b>마지막 측정이 ${formatAgo(newest)}예요.</b><br>ESP32 전원과 와이파이 연결을 확인해 주세요.</div>`);
+      }
+    }
+    const stalePots = POT_IDS.filter((id) => data[id]?.time && (Date.now() - data[id].time.getTime()) / 60000 > CONFIG.STALE_MINUTES);
+    if (stalePots.length && stalePots.length < POT_IDS.length) {
+      html.push(`<div class="alert warning">⚠️ <b>${stalePots.join(", ")}</b> 센서 값이 ${CONFIG.STALE_MINUTES}분 넘게 안 들어오고 있어요. 센서 선이 빠졌는지 확인해 주세요.</div>`);
+    }
+    const uncalibrated = POT_IDS.filter((id) => data[id]?.soilSource === "raw" && !isCalibrated(id));
+    if (uncalibrated.length) {
+      html.unshift(`<div class="alert warning">📟 <b>센서 보정값을 아직 안 넣었어요.</b><br>지금 %는 기본값으로 계산한 대략적인 값이에요. <a href="settings.html#calibration" style="text-decoration:underline">설정 → 센서 보정</a>에서 확인해 주세요.</div>`);
+    }
+    const missing = POT_IDS.filter((id) => !data[id]);
+    if (missing.length && missing.length < POT_IDS.length) {
+      html.push(`<div class="alert warning">⚠️ 시트에서 데이터를 찾지 못한 화분: <b>${missing.join(", ")}</b></div>`);
+    }
+  }
+  document.getElementById("alerts").innerHTML = html.join("");
+}
+
+// 온도 · 습도 · 햇빛 카드 (온습도 센서는 1개, 햇빛은 구역별로 따로)
+function renderEnv(env) {
+  env = env || {};
+  const n = (v, d) => (v == null ? "-" : v.toFixed(d));
+  const lux = (v) => (v == null ? "-" : Math.round(v).toLocaleString());
+  const lightWord = (v) => v == null ? "" : v < 50 ? "어두워요 (밤)" : v < 2000 ? "조금 어두워요" : v < 10000 ? "밝아요" : "아주 밝아요";
+  const tempWord = (v) => v == null ? "" : v < 15 ? "토마토에게 추워요" : v > 30 ? "토마토에게 더워요" : "토마토에게 알맞아요";
+  document.getElementById("envTiles").innerHTML = `
+    <div class="env-tile">
+      <div class="env-label">🌡️ 온도</div>
+      <div class="env-value">${n(env.temp, 1)}<small>°C</small></div>
+      <div class="env-sub">${tempWord(env.temp)}</div>
+    </div>
+    <div class="env-tile">
+      <div class="env-label">💦 공기 습도</div>
+      <div class="env-value">${n(env.humidity, 0)}<small>%</small></div>
+      <div class="env-sub">${env.humidity == null ? "" : env.humidity > 85 ? "습해요 (곰팡이 주의)" : env.humidity < 40 ? "건조해요" : "적당해요"}</div>
+    </div>
+    <div class="env-tile">
+      <div class="env-label">☀️ 햇빛 A·B (LED)</div>
+      <div class="env-value">${lux(env.lightLed)}<small>lux</small></div>
+      <div class="env-sub">${lightWord(env.lightLed)}</div>
+    </div>
+    <div class="env-tile">
+      <div class="env-label">🌤️ 햇빛 C·D (자연광)</div>
+      <div class="env-value">${lux(env.lightNatural)}<small>lux</small></div>
+      <div class="env-sub">${lightWord(env.lightNatural)}</div>
+    </div>`;
+}
+
+function render(data, live) {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = POT_IDS.map((id) => {
+    const cfg = POT_CONFIG[id];
+    const d = data[id] || {};
+    const key = classifyMoisture(d.soil);
+
+    const sub = [];
+    if (d.soilSource === "raw") sub.push(`📟 센서값 ${d.soilRaw}`);
+
+    const old = d.time && (Date.now() - d.time.getTime()) / 60000 > CONFIG.STALE_MINUTES;
+    const right = d.pump
+      ? `<span class="pumping">🚿 급수 중</span>`
+      : d.time ? `<span class="${old ? "old" : ""}">${formatAgo(d.time)}</span>` : "";
+
+    return `
+      <div class="card ${key}">
+        <div class="card-top">
+          <span class="pot-id">${id}</span>
+          <span class="group-tag">${cfg.group}</span>
+        </div>
+        ${renderGauge(d.soil)}
+        <span class="status-badge ${key}">${STATUS_INFO[key].label}</span>
+        ${sub.length ? `<div class="sub-values">${sub.map((s) => `<span>${s}</span>`).join("")}</div>` : ""}
+        <div class="meta-row">
+          <span>LED ${cfg.led ? "○" : "✕"} · 급수 ${cfg.waterMode}</span>
+          ${right}
+        </div>
+      </div>`;
+  }).join("");
+
+  renderEnv(data._env);
+  renderAlerts(data, live);
+  document.getElementById("lastUpdated").textContent =
+    "확인: " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+async function refresh() {
+  try {
+    const data = await fetchLatestByPot();
+    setStatus("live");
+    render(data, true);
+  } catch (err) {
+    console.warn(err);
+    setStatus(isConfigured() ? "error" : "demo", isConfigured() ? err.message : "");
+    render(getDemoLatest(), false);
+  }
+}
+
+const runNow = startAutoRefresh(refresh);
+document.getElementById("refreshBtn").addEventListener("click", runNow);
+</script>
+</body>
+</html>
