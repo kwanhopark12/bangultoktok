@@ -77,9 +77,29 @@ function normalizePotId(v) {
   return s;
 }
 
+/* ---------- 시트 화분 이름 → 실제 화분 (config.js 의 POT_NAME_FIX) ---------- */
+// 그 줄의 fw_ver 가 "0.4" 로 시작하면(옛 펌웨어) 실제 화분 이름으로 바꿈. 0.5.x 이상은 그대로.
+// fw_ver 가 비어 있는 줄은 옛 펌웨어 줄로 봄 (새 펌웨어는 항상 fw_ver 를 적어요)
+function isOldFw(fw) {
+  const v = fw == null ? "" : String(fw).trim();
+  if (!v) return true;
+  return v.startsWith(POT_NAME_FIX.oldFwPrefix || "0.4");
+}
+
+// fw 가 undefined 면(시트에 fw_ver 열 자체가 없음) 바꾸지 않음
+function fixPotName(pot, fw) {
+  if (!isPotFixActive() || !pot || fw === undefined) return pot;
+  return isOldFw(fw) ? (POT_NAME_FIX.map[pot] || pot) : pot;
+}
+
+function isPotFixActive() {
+  return typeof POT_NAME_FIX !== "undefined" && POT_NAME_FIX.enabled !== false;
+}
+
 /* ---------- 열 자동 인식 ---------- */
 // 각 항목을 찾는 규칙. avoid 에 걸리는 제목은 건너뜀, prefer 에 맞는 제목을 먼저 고름
 const COLUMN_RULES = [
+  { key: "fw",       re: /^fw|firmware|펌웨어/i },
   { key: "time",     re: /time|date|stamp|^ts\b|^ts_|_ts$|타임|시간|시각|일시|날짜/i, prefer: /server|서버/i },
   { key: "board",    re: /board|보드|device_id|esp/i },
   { key: "soilPct",  re: /(soil|moist|토양|수분).*(pct|percent|%|퍼센트|율)|(pct|percent|%|퍼센트|율).*(soil|moist|토양|수분)/i },
@@ -96,7 +116,7 @@ const DEFAULT_ORDER = ["time", "board", "pot", "soil", "temp", "humidity", "ligh
 const KEY_LABELS = {
   time: "측정 시간", board: "보드", pot: "화분 번호", soil: "토양수분",
   soilPct: "토양수분 (%)", soilRaw: "토양수분 (센서 원시값)",
-  temp: "온도", humidity: "습도", light: "조도", pump: "펌프",
+  temp: "온도", humidity: "습도", light: "조도", pump: "펌프", fw: "펌웨어 버전",
 };
 
 function potFromLabel(label) {
@@ -120,7 +140,7 @@ function detectColumns(cols) {
   if (isWide) Object.values(wide).forEach((i) => used.add(i));
 
   COLUMN_RULES.forEach(({ key, re, prefer }) => {
-    if (isWide && ["pot", "soil", "soilPct", "soilRaw"].includes(key)) return;
+    if (isWide && ["pot", "soil", "soilPct", "soilRaw", "fw"].includes(key)) return;
     if (key === "soil" && (map.soilPct != null || map.soilRaw != null)) return;
     const candidates = labels
       .map((label, idx) => ({ label, idx }))
@@ -155,17 +175,17 @@ function columnLetter(i) {
 }
 
 /* ---------- 구글시트 호출 ---------- */
-function gvizUrl(query) {
+function gvizUrl(query, sheet) {
   const base = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(CONFIG.SHEET_ID)}/gviz/tq`;
-  const params = new URLSearchParams({ tqx: "out:json", headers: "1", sheet: CONFIG.SHEET_NAME, t: String(Date.now()) });
+  const params = new URLSearchParams({ tqx: "out:json", headers: "1", sheet: sheet || CONFIG.SHEET_NAME, t: String(Date.now()) });
   if (query) params.set("tq", query);
   return `${base}?${params.toString()}`;
 }
 
-async function gvizFetch(query) {
+async function gvizFetch(query, sheet) {
   let res;
   try {
-    res = await fetch(gvizUrl(query), { cache: "no-store" });
+    res = await fetch(gvizUrl(query, sheet), { cache: "no-store" });
   } catch (e) {
     throw new Error("구글시트에 접속하지 못했어요 (인터넷 연결 또는 시트 공유 설정을 확인하세요)");
   }
@@ -187,13 +207,13 @@ async function gvizFetch(query) {
 }
 
 // 시트에서 "마지막 limit 줄"만 가져오기 (줄 수를 먼저 센 다음 끝부분만 요청)
-async function fetchTable(limit) {
+async function fetchTable(limit, sheet) {
   if (limit) {
     try {
-      const countTable = await gvizFetch("select count(A)");
+      const countTable = await gvizFetch("select count(A)", sheet);
       const total = countTable.rows?.[0]?.c?.[0]?.v ?? 0;
       const offset = Math.max(0, total - limit);
-      const table = await gvizFetch(`select * limit ${limit} offset ${offset}`);
+      const table = await gvizFetch(`select * limit ${limit} offset ${offset}`, sheet);
       table.totalRows = total;
       return table;
     } catch (e) {
@@ -201,7 +221,7 @@ async function fetchTable(limit) {
       // 부분 조회가 안 되는 시트면 전체를 읽음
     }
   }
-  return gvizFetch(null);
+  return gvizFetch(null, sheet);
 }
 
 // 한 줄 → 토양수분 % (soil_pct 가 있으면 그대로, 없으면 soil_raw 를 보정값으로 변환)
@@ -221,6 +241,7 @@ function rowsToRecords(table, detected) {
     const raw = cell(r, map.time);
     const common = {
       board: cell(r, map.board),
+      fw: map.fw == null ? undefined : cell(r, map.fw),
       temp: toNumber(cell(r, map.temp)),
       humidity: toNumber(cell(r, map.humidity)),
       light: toNumber(cell(r, map.light)),
@@ -229,19 +250,21 @@ function rowsToRecords(table, detected) {
     };
 
     if (format === "wide") {
-      Object.entries(wide).forEach(([pot, i]) => {
+      Object.entries(wide).forEach(([sheetPot, i]) => {
         const soil = toNumber(cell(r, i));
         if (soil == null) return;
-        records.push({ ...common, pot, soil, soilSource: "pct", pump: false });
+        const pot = fixPotName(sheetPot, common.fw);
+        records.push({ ...common, pot, sheetPot, soil, soilSource: "pct", pump: false });
       });
     } else {
-      const pot = normalizePotId(cell(r, map.pot));
-      if (!pot) return;
+      const sheetPot = normalizePotId(cell(r, map.pot));
+      if (!sheetPot) return;
+      const pot = fixPotName(sheetPot, common.fw);
       const pct = toNumber(cell(r, map.soilPct ?? map.soil));
       const rawV = toNumber(cell(r, map.soilRaw));
       const s = soilFrom(pot, pct, rawV);
       if (s.soil == null) return;
-      records.push({ ...common, pot, ...s, pump: toBool(cell(r, map.pump)) });
+      records.push({ ...common, pot, sheetPot, ...s, pump: toBool(cell(r, map.pump)) });
     }
   });
   return records;
@@ -333,58 +356,79 @@ function gvizDateTime(d) {
 async function fetchHistoryByPot(rangeHours) {
   if (!isConfigured()) throw new Error("config.js 에 SHEET_ID 를 아직 넣지 않았어요");
 
-  // 1) 마지막 몇 줄로 열 구조와 soil_pct 사용 여부를 확인
+  // 1) 마지막 몇 줄로 열 구조를 확인
   const sample = await fetchTable(50);
   const detected = detectColumns(sample.cols || []);
   const { map, ids, format } = detected;
-  const sampleRecords = rowsToRecords(sample, detected);
-  const usePct = sampleRecords.some((r) => r.soilSource === "pct");
-  const soilIdx = usePct ? (map.soilPct ?? map.soil) : (map.soilRaw ?? map.soil);
+  // soil_pct(서버 계산)와 soil_raw 가 둘 다 있으면 둘 다 평균 → 칸마다 pct 우선, 없으면 raw 를 보정값으로
+  const pctIdx = map.soilPct ?? (map.soilRaw == null ? map.soil : null);
+  const rawIdx = map.soilRaw ?? null;
 
   // 2) 구글 쪽 평균 계산 (시간 열이 날짜 형식일 때만 가능)
-  if (format === "long" && map.time != null && map.pot != null && soilIdx != null) {
-    const T = ids[map.time], P = ids[map.pot], S = ids[soilIdx];
+  if (format === "long" && map.time != null && map.pot != null && (pctIdx != null || rawIdx != null)) {
+    const T = ids[map.time], P = ids[map.pot];
+    const F = map.fw != null ? ids[map.fw] : null;   // 옛 펌웨어 줄을 구분하려고 fw_ver 로도 묶음
     const daily = !rangeHours || rangeHours > 24 * 31;
     const groupCols = daily
       ? `year(${T}), month(${T}), day(${T})`
       : `year(${T}), month(${T}), day(${T}), hour(${T})`;
-    const where = [`${S} is not null`];
+    const soilCols = [pctIdx, rawIdx].filter((i) => i != null).map((i) => ids[i]);
+    const where = [`(${soilCols.map((c) => `${c} is not null`).join(" or ")})`];
     if (rangeHours) where.push(`${T} >= datetime '${gvizDateTime(new Date(Date.now() - rangeHours * 3600 * 1000))}'`);
 
-    // 함께 평균 낼 열: 토양수분(필수) + 펌프 + 온도 + 습도 + 햇빛(있는 것만)
     const extraKeys = ["pump", "temp", "humidity", "light"].filter((k) => map[k] != null);
-    const tryQuery = async (keys) => {
-      const parts = [`avg(${S})`].concat(keys.map((k) => (k === "pump" ? `max(${ids[map[k]]})` : `avg(${ids[map[k]]})`)));
-      const q = `select ${P}, ${groupCols}, ${parts.join(", ")} where ${where.join(" and ")} group by ${P}, ${groupCols}`;
-      return { table: await gvizFetch(q), keys };
+    const tryQuery = async (keys, withFw) => {
+      const lead = withFw && F ? [P, F] : [P];
+      const parts = soilCols.map((c) => `avg(${c})`)
+        .concat(keys.map((k) => (k === "pump" ? `max(${ids[map[k]]})` : `avg(${ids[map[k]]})`)));
+      const q = `select ${lead.join(", ")}, ${groupCols}, ${parts.join(", ")} where ${where.join(" and ")} group by ${lead.join(", ")}, ${groupCols}`;
+      return { table: await gvizFetch(q), keys, withFw: withFw && Boolean(F) };
     };
 
     try {
-      let got;
-      try { got = await tryQuery(extraKeys); }
-      catch (e) { if (!e.gviz) throw e; got = await tryQuery([]); }   // 온도 등 열 때문에 실패하면 토양수분만
+      let got = null;
+      const attempts = [[extraKeys, true], [[], true], [extraKeys, false], [[], false]];
+      for (const [keys, withFw] of attempts) {
+        try { got = await tryQuery(keys, withFw); break; }
+        catch (e) { if (!e.gviz) throw e; }
+      }
+      if (!got) throw Object.assign(new Error("집계 실패"), { gviz: true });
 
-      const result = emptyByPot();
+      // 같은 화분·같은 시간칸이 fw 별로 나뉘어 오면 합침
+      const merged = new Map();
+      const nLead = got.withFw ? 2 : 1;
       const nTime = daily ? 3 : 4;
       (got.table.rows || []).forEach((r) => {
         const v = r.c.map((c) => (c ? c.v : null));
-        const pot = normalizePotId(v[0]);
-        if (!result[pot]) return;
-        const time = new Date(v[1], v[2], v[3], daily ? 12 : v[4], 0, 0); // gviz month()는 0부터 시작
-        const avg = toNumber(v[1 + nTime]);
-        const s = usePct ? { soil: avg, soilSource: "pct" } : soilFrom(pot, null, avg);
+        const time = new Date(v[nLead], v[nLead + 1], v[nLead + 2], daily ? 12 : v[nLead + 3], 0, 0); // gviz month()는 0부터
+        const fw = got.withFw ? v[1] : null;
+        const pot = got.withFw ? fixPotName(normalizePotId(v[0]), fw) : normalizePotId(v[0]);
+        if (!POT_IDS.includes(pot)) return;
+        let k = nLead + nTime;
+        const pctAvg = pctIdx != null ? toNumber(v[k++]) : null;
+        const rawAvg = rawIdx != null ? toNumber(v[k++]) : null;
+        const s = soilFrom(pot, pctAvg, rawAvg);
         if (s.soil == null) return;
         const extra = {};
-        got.keys.forEach((k, j) => { extra[k] = toNumber(v[2 + nTime + j]); });
-        result[pot].push({
+        got.keys.forEach((key, j) => { extra[key] = toNumber(v[k + j]); });
+        const id = pot + "|" + time.getTime();
+        const prev = merged.get(id);
+        const rec = {
           pot, ...s, time, timestamp: time.toISOString(),
           temp: extra.temp ?? null, humidity: extra.humidity ?? null, light: extra.light ?? null,
-          pump: (extra.pump ?? 0) > 0,
-          aggregated: daily ? "day" : "hour",
-        });
+          pump: (extra.pump ?? 0) > 0, aggregated: daily ? "day" : "hour",
+        };
+        if (!prev) merged.set(id, rec);
+        else {   // 펌웨어가 바뀐 시간칸: 단순 평균으로 합침
+          const mix = (a, b) => (a == null ? b : b == null ? a : (a + b) / 2);
+          merged.set(id, { ...prev, soil: mix(prev.soil, rec.soil), temp: mix(prev.temp, rec.temp),
+            humidity: mix(prev.humidity, rec.humidity), light: mix(prev.light, rec.light), pump: prev.pump || rec.pump });
+        }
       });
+      const result = emptyByPot();
+      merged.forEach((rec) => result[rec.pot].push(rec));
       POT_IDS.forEach((id) => result[id].sort(byTime));
-      result._meta = { mode: daily ? "day" : "hour", totalRows: sample.totalRows };
+      result._meta = { mode: daily ? "day" : "hour", totalRows: sample.totalRows, fwSplit: got.withFw };
       return result;
     } catch (e) {
       if (!e.gviz) throw e;
@@ -405,6 +449,64 @@ async function fetchHistoryByPot(rangeHours) {
 async function fetchRecentRows(limit = 300) {
   const { records } = await fetchRecords(limit);
   return records.sort((a, b) => (b.time?.getTime() || 0) - (a.time?.getTime() || 0));
+}
+
+/* ============================================================
+   급수 기록 (pump_log 탭) — ESP32 펌웨어가 쓰고, 대시보드는 읽기만
+   열: ts_server, pot_id, mode, trigger_soil_pct, duration_ms, result, fw_ver,
+       board_id, trigger_soil_raw, ml, ts_event, uptime_s
+   ============================================================ */
+const PUMP_MODE_LABEL = {
+  sensor: "실험: 센서", static: "실험: 정해진 시각", manual: "버튼(수동)",
+  schedule: "예약", user_threshold: "수분 기준", threshold: "수분 기준", user: "수분 기준",
+  shadow: "판단만(시험)",
+};
+const PUMP_RESULT_LABEL = {
+  ok: "급수함", ok_manual: "급수함", would_water: "줄 뻔함(시험)", fail_reset: "실패(재부팅)",
+};
+function pumpResultLabel(r) {
+  if (!r) return "-";
+  if (PUMP_RESULT_LABEL[r]) return PUMP_RESULT_LABEL[r];
+  if (String(r).startsWith("skip")) return "건너뜀 (" + String(r).replace(/^skip_?/, "") + ")";
+  return String(r);
+}
+
+async function fetchPumpLog(limit = 100) {
+  if (!isConfigured()) throw new Error("config.js 에 SHEET_ID 를 아직 넣지 않았어요");
+  const sheet = CONFIG.PUMP_LOG_SHEET || "pump_log";
+  let table;
+  try { table = await fetchTable(limit, sheet); }
+  catch (e) {
+    if (e.gviz) return { missing: true, rows: [] };   // 아직 pump_log 탭이 없음
+    throw e;
+  }
+  const labels = (table.cols || []).map((c) => String(c.label || "").trim().toLowerCase());
+  const idx = (name) => labels.indexOf(name);
+  const I = {
+    time: idx("ts_server"), pot: idx("pot_id"), mode: idx("mode"), pct: idx("trigger_soil_pct"),
+    ms: idx("duration_ms"), result: idx("result"), fw: idx("fw_ver"), board: idx("board_id"),
+    raw: idx("trigger_soil_raw"), ml: idx("ml"), event: idx("ts_event"),
+  };
+  const cell = (r, i) => (i < 0 || !r.c || !r.c[i] ? null : r.c[i].v);
+  const cellF = (r, i) => (i < 0 || !r.c || !r.c[i] ? null : r.c[i].f);
+  const rows = (table.rows || []).map((r) => {
+    const tEvent = parseTimestamp(cell(r, I.event), cellF(r, I.event));
+    const tServer = parseTimestamp(cell(r, I.time), cellF(r, I.time));
+    return {
+      time: tEvent || tServer,
+      pot: normalizePotId(cell(r, I.pot)),
+      mode: String(cell(r, I.mode) ?? ""),
+      result: String(cell(r, I.result) ?? ""),
+      soilPct: toNumber(cell(r, I.pct)),
+      soilRaw: toNumber(cell(r, I.raw)),
+      ms: toNumber(cell(r, I.ms)),
+      ml: toNumber(cell(r, I.ml)),
+      fw: cell(r, I.fw),
+      board: cell(r, I.board),
+    };
+  }).filter((r) => r.pot);
+  rows.sort((a, b) => (b.time?.getTime() || 0) - (a.time?.getTime() || 0));
+  return { missing: false, rows };
 }
 
 /* ============================================================

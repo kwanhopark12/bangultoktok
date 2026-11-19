@@ -17,43 +17,80 @@ const CONFIG = {
   HISTORY_ROWS: 6000,
 
   // 마지막 측정 후 이 시간(분)이 지나도 새 데이터가 없으면 "센서 확인" 경고를 띄움
+  // (펌웨어 0.5.x 부터 10분마다 올라와요)
   STALE_MINUTES: 30,
+
+  // 급수 기록이 쌓이는 탭 이름 (ESP32 펌웨어가 씀, 대시보드는 읽기만)
+  PUMP_LOG_SHEET: "pump_log",
+
+  // ★ 급수 명령 서버(Apps Script) 웹 앱 주소 — "급수명령서버_설치방법.txt" 5단계에서 복사한 주소
+  //   이 주소는 공개돼도 괜찮아요(비밀번호가 있어야 물을 줄 수 있음).
+  //   ⚠️ 센서 데이터를 올리는 기존 Apps Script 주소를 여기에 넣으면 절대 안 돼요!
+  WATER_API_URL: "https://script.google.com/macros/s/AKfycbymJRKVdWgc_Y0S51TLAVoX0jJDcpGbuetIYYFfYuEVpjz2usabG42SSTZhsdSC_HUW/exec",
 };
 
-// 화분별 고정 실험 설정 (계획서 기준: A/B = LED 보강조명 구역, C/D = 자연광 구역
-//                                   A/C = 스마트 자동급수, B/D = 관행/타이머 급수)
+// 펌프가 실제로 연결된 화분 (여기 있는 화분만 "물 주기" 버튼이 켜져요)
+// 펌프를 더 달면 여기에 추가하세요.  예) ["A1", "A2", "B1", "B2"]
+const PUMP_INSTALLED = ["A1", "A2"];
+
+// 펌프 1초에 나오는 물 양 (ml). 재 보면 적어 주세요 → 화면에 "약 몇 ml" 로 같이 보여줘요.
+//   재는 법: 5초·15초 돌려서 컵 무게(g) 재기 → (15초 무게 − 5초 무게) ÷ 10
+const PUMP_ML_PER_SEC = { A1: null, A2: null };
+
+// 화분별 고정 실험 설정 (2×2: LED 보광 × 급수 방식)
+//   A/B = LED 보광 구역, C/D = 자연광 구역
+//   A/C = 센서 기반 급수(흙이 마르면), B/D = 정적 급수(정해진 시각·정해진 양)
 const POT_CONFIG = {
-  A1: { group: "완전 스마트형", led: true,  waterMode: "자동" },
-  A2: { group: "완전 스마트형", led: true,  waterMode: "자동" },
-  B1: { group: "조명 관행형",   led: true,  waterMode: "타이머" },
-  B2: { group: "조명 관행형",   led: true,  waterMode: "타이머" },
-  C1: { group: "관수 스마트형", led: false, waterMode: "자동" },
-  C2: { group: "관수 스마트형", led: false, waterMode: "자동" },
-  D1: { group: "완전 관행형",   led: false, waterMode: "타이머" },
-  D2: { group: "완전 관행형",   led: false, waterMode: "타이머" },
+  A1: { group: "보광 + 센서", led: true,  waterMode: "센서 기반" },
+  A2: { group: "보광 + 센서", led: true,  waterMode: "센서 기반" },
+  B1: { group: "보광 + 정적", led: true,  waterMode: "정해진 시각" },
+  B2: { group: "보광 + 정적", led: true,  waterMode: "정해진 시각" },
+  C1: { group: "자연광 + 센서", led: false, waterMode: "센서 기반" },
+  C2: { group: "자연광 + 센서", led: false, waterMode: "센서 기반" },
+  D1: { group: "자연광 + 정적", led: false, waterMode: "정해진 시각" },
+  D2: { group: "자연광 + 정적", led: false, waterMode: "정해진 시각" },
 };
 const POT_IDS = Object.keys(POT_CONFIG);
 
 /* ------------------------------------------------------------
-   토양수분 센서 보정값 (soil_raw 센서값 → % 로 바꿀 때 사용)
-   시트의 soil_pct 열이 비어 있으면 soil_raw 를 아래 값으로 % 계산합니다.
+   ★ 예전 기록의 화분 이름 바로잡기 (자동)
+   펌웨어 0.4.x 로 찍힌 줄은 화분 이름이 뒤바뀌어 있어요. 0.5.x 부터는 시트 이름 = 실제 화분.
+   → 각 줄의 fw_ver 를 보고 "0.4" 로 시작하는 줄만 아래 표대로 바꿔서 보여줘요.
 
-   dry = 센서를 흙에서 빼서 "공기 중"에 들고 있을 때의 soil_raw 값 (0%)
-   wet = 센서를 물컵에 "선 높이까지" 담갔을 때의 soil_raw 값      (100%)
+     0.4.x 시트 이름        →   실제 화분
+     C1, C2, D1, D2        →   A1, A2, B1, B2
+     A1, A2, B2, B1        →   C1, C2, D1, D2   (D1/D2 순서는 현우 확인 전 — 바뀌면 아래 두 줄만 고치기)
+------------------------------------------------------------- */
+const POT_NAME_FIX = {
+  enabled: true,
+  oldFwPrefix: "0.4",
+  map: {
+    C1: "A1", C2: "A2", D1: "B1", D2: "B2",
+    A1: "C1", A2: "C2",
+    B2: "D1",
+    B1: "D2",
+  },
+};
 
-   ★ 화분마다 측정해서 null 대신 넣어주세요. 예)  A1: { dry: 2650, wet: 1020 },
-   null 이면 아래 기본값(DEFAULT)을 쓰는데, 정확하지 않아요.
+/* ------------------------------------------------------------
+   토양수분 센서 보정값 (soil_raw → % 로 바꿀 때 사용) — "실제 화분 이름" 기준
+   ★ 시트에 soil_pct 값이 있으면(서버가 calib 탭으로 계산) 그 값을 먼저 써요.
+     soil_pct 가 비어 있는 줄만 아래 값으로 계산해요.
+
+   dry = 0% 기준 soil_raw, wet = 100% 기준 soil_raw
+   아래는 2026-11-05 공기/물 측정값이에요 (calib 탭의 흙 기준값과는 달라서 % 가 높게 나올 수 있어요).
+   D1/D2 는 센서 순서 확인 전이라 바뀔 수 있어요.
 ------------------------------------------------------------- */
 const SOIL_CALIBRATION_DEFAULT = { dry: 2600, wet: 900 };
 const SOIL_CALIBRATION = {
-  A1: { dry: 3035, wet: 917 },
-  A2: { dry: 3035, wet: 982 },
-  B1: { dry: 2774, wet: 971 },
-  B2: { dry: 3019, wet: 973 },
-  C1: { dry: 3205, wet: 1136 },
-  C2: { dry: 2595, wet: 1202 },
-  D1: { dry: 3205, wet: 1153 },
-  D2: { dry: 3108, wet: 1047 },
+  A1: { dry: 3205, wet: 1136 },
+  A2: { dry: 2595, wet: 1202 },
+  B1: { dry: 3205, wet: 1153 },
+  B2: { dry: 3108, wet: 1047 },
+  C1: { dry: 3035, wet: 917 },
+  C2: { dry: 3035, wet: 982 },
+  D1: { dry: 3019, wet: 973 },
+  D2: { dry: 2774, wet: 971 },
 };
 
 function rawToPercent(pot, raw) {

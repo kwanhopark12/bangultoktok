@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>급수 관리 · 방울톡톡</title>
+<meta name="theme-color" content="#2f6b3f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="방울톡톡">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page-wrap">
+  <div class="top-bar">
+    <a class="pill-link" href="index.html">← 홈</a>
+    <a class="pill-link" href="settings.html">⚙️ 설정</a>
+  </div>
+
+  <h1>🚿 급수 관리</h1>
+  <p class="desc">물 주는 방법 4가지: <b>지금 바로</b> · <b>매일 몇 시</b> · <b>매주 무슨 요일 몇 시</b> · <b>수분이 몇 % 아래면</b>. 모두 원할 때만 켜요.</p>
+  <div class="jump-links">
+    <a class="pill-link" href="#sec-now">💧 지금 주기</a>
+    <a class="pill-link" href="#sec-schedule">⏰ 예약</a>
+    <a class="pill-link" href="#sec-auto">🤖 수분 기준</a>
+    <a class="pill-link" href="#sec-log">📋 기록</a>
+  </div>
+
+  <div class="status-bar">
+    <span><span id="apiDot" class="status-dot"></span><span id="apiText">급수 서버 확인 중...</span></span>
+    <span id="dev-BD1"></span>
+    <span id="dev-BD2"></span>
+    <button class="btn" id="refreshBtn">새로고침</button>
+  </div>
+
+  <div class="alerts" id="alerts"></div>
+
+  <!-- 급수 비밀번호 -->
+  <section class="panel" id="keyPanel">
+    <h2>🔑 급수 비밀번호</h2>
+    <p class="hint">물 주기와 설정 바꾸기는 비밀번호가 있어야 돼요. 이 기기에 한 번만 저장하면 돼요.</p>
+    <div class="key-row" id="keyForm">
+      <input type="password" id="keyInput" placeholder="급수 비밀번호" autocomplete="current-password">
+      <button class="btn primary" id="keySave">저장</button>
+    </div>
+    <div class="key-row" id="keySaved" hidden>
+      <span class="saved-msg">✓ 이 기기에 저장돼 있어요</span>
+      <button class="btn" id="keyClear">지우기</button>
+    </div>
+    <p class="saved-msg" id="keyMsg"></p>
+  </section>
+
+  <!-- 지금 물 주기 -->
+  <h2 class="section-title" id="sec-now">💧 지금 물 주기</h2>
+  <p class="desc">누르면 ESP32 가 1분 안에 받아서 물을 줘요. 펌프는 한 번에 하나만, 한 번에 최대 <span id="maxSecText">20</span>초예요.</p>
+  <div class="grid water-grid" id="waterGrid"></div>
+
+  <!-- 예약 급수 -->
+  <h2 class="section-title" id="sec-schedule">⏰ 예약 급수 <small class="opt-tag">원할 때만</small></h2>
+  <p class="desc">매일 정한 시각에, 또는 매주 고른 요일·시각에 정한 만큼 물을 줘요. 예약마다 켜고 끌 수 있어요.</p>
+  <div class="panel sched-form" id="schedForm">
+    <div class="sched-grid">
+      <label>화분<select id="sfPot"></select></label>
+      <label>반복
+        <div class="seg seg-2" id="sfKind">
+          <button class="seg-btn on" data-kind="daily" type="button">매일</button>
+          <button class="seg-btn" data-kind="weekly" type="button">매주</button>
+        </div>
+      </label>
+      <label>시각<input type="time" id="sfAt" value="08:00" step="60"></label>
+      <label>양 (초)<select id="sfSec"></select></label>
+    </div>
+    <div class="day-chips" id="sfDays" hidden></div>
+    <div class="sched-foot">
+      <span class="hint-line" id="sfHint"></span>
+      <button class="btn primary" id="sfAdd" type="button">＋ 예약 추가</button>
+    </div>
+  </div>
+  <div class="sched-list" id="schedList"></div>
+
+  <!-- 내 기준 자동 급수 -->
+  <h2 class="section-title" id="sec-auto">🤖 수분 기준 급수 <small class="opt-tag">원할 때만</small></h2>
+  <p class="desc">
+    수분이 정한 % 아래로 내려가면 물을 줘요. 10분마다 올라오는 센서값으로 판단해요 (인터넷 필요).
+    꺼 두면 실험 규칙대로 동작해요 (A·C = 흙이 마르면, B·D = 정해진 시각).
+  </p>
+  <div class="auto-list" id="autoList"></div>
+
+  <!-- 기록 -->
+  <h2 class="section-title" id="sec-log">📋 급수 기록</h2>
+  <p class="desc">버튼 명령 처리 상황과, ESP32 가 실제로 물을 준 기록(pump_log)이에요.</p>
+  <div class="record-card" style="margin-bottom:12px">
+    <div class="record-card-top"><b>앱에서 보낸 급수 (버튼 · 예약 · 수분 기준)</b><span class="chart-current" id="cmdCount"></span></div>
+    <div id="cmdList"></div>
+  </div>
+  <div class="table-wrap" id="pumpLogWrap"></div>
+
+  <footer id="footerText"></footer>
+</div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="water-api.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const settings = getSettings();
+const state = { soil: {}, server: null, serverError: null, pumpLog: null, secChoice: {}, busy: {}, autoDraft: {} };
+const SEC_OPTIONS = [2, 3, 5, 10];
+
+/* ---------- 비밀번호 ---------- */
+function renderKeyPanel() {
+  const has = Boolean(WaterAPI.getKey());
+  $("keyForm").hidden = has;
+  $("keySaved").hidden = !has;
+}
+$("keySave").addEventListener("click", async () => {
+  const k = $("keyInput").value.trim();
+  if (!k) return;
+  $("keyMsg").textContent = "확인 중...";
+  try {
+    await WaterAPI.checkKey(k);
+    WaterAPI.setKey(k);
+    $("keyInput").value = "";
+    $("keyMsg").textContent = "✓ 맞는 비밀번호예요. 저장했어요";
+  } catch (e) {
+    $("keyMsg").textContent = "❌ " + e.message;
+  }
+  renderKeyPanel();
+  renderAll();
+});
+$("keyClear").addEventListener("click", () => {
+  WaterAPI.setKey("");
+  $("keyMsg").textContent = "지웠어요";
+  renderKeyPanel();
+  renderAll();
+});
+
+/* ---------- 상태 표시 ---------- */
+function renderStatus() {
+  const dot = $("apiDot"), text = $("apiText");
+  if (!WaterAPI.isConfigured()) {
+    dot.className = "status-dot error"; text.textContent = "급수 서버 주소 없음";
+  } else if (state.serverError) {
+    dot.className = "status-dot error"; text.textContent = "급수 서버 연결 실패";
+  } else if (state.server) {
+    dot.className = "status-dot live"; text.textContent = "급수 서버 연결됨";
+  }
+  ["BD1", "BD2"].forEach((b) => {
+    const d = state.server?.devices?.[b];
+    const zone = b === "BD1" ? "A·B" : "C·D";
+    let html = "";
+    if (state.server) {
+      if (!d || !d.last_poll) html = `<span class="dev off">● ${zone} 보드: 아직 연결 안 됨</span>`;
+      else {
+        const ago = formatAgo(new Date(d.last_poll));
+        html = d.online
+          ? `<span class="dev on">● ${zone} 보드: ${ago} 확인${d.fw_ver ? ` · fw ${escapeHtml(d.fw_ver)}` : ""}</span>`
+          : `<span class="dev off">● ${zone} 보드: 끊김 (마지막 ${ago})</span>`;
+      }
+    }
+    $("dev-" + b).innerHTML = html;
+  });
+}
+
+function renderAlerts() {
+  const html = [];
+  if (!WaterAPI.isConfigured()) {
+    html.push(`<div class="alert warning">⚠️ <b>급수 서버 주소가 아직 없어요.</b> "급수명령서버_설치방법.txt" 대로 서버를 만든 뒤,
+      config.js 의 <b>WATER_API_URL</b> 에 웹 앱 주소를 넣어 주세요. 그 전에는 기록만 볼 수 있어요.</div>`);
+  } else if (state.serverError) {
+    html.push(`<div class="alert critical">❌ ${escapeHtml(state.serverError)}</div>`);
+  } else if (state.server) {
+    const anyOnline = Object.values(state.server.devices || {}).some((d) => d.online);
+    if (!anyOnline) {
+      html.push(`<div class="alert warning">⚠️ <b>ESP32 가 아직 급수 서버를 확인하지 않고 있어요.</b>
+        현우님 펌웨어에 "급수 명령 확인" 기능이 들어가야 버튼이 실제로 동작해요. 지금 누르면 명령이 10분 동안 기다리다 취소돼요.</div>`);
+    }
+  }
+  if (WaterAPI.isConfigured() && !WaterAPI.getKey()) {
+    html.push(`<div class="alert serious">🔑 위의 <b>급수 비밀번호</b>를 먼저 저장해 주세요.</div>`);
+  }
+  $("alerts").innerHTML = html.join("");
+}
+
+/* ---------- 지금 물 주기 ---------- */
+function latestCmdFor(pot) {
+  return (state.server?.cmds || []).find((c) => c.pot === pot) || null;
+}
+
+function renderWaterGrid() {
+  const canSend = WaterAPI.isConfigured() && Boolean(WaterAPI.getKey()) && !state.serverError;
+  const maxSec = state.server?.limits?.maxSec ?? 20;
+  $("maxSecText").textContent = maxSec;
+
+  $("waterGrid").innerHTML = POT_IDS.map((id) => {
+    const cfg = POT_CONFIG[id];
+    const installed = PUMP_INSTALLED.includes(id);
+    const soil = state.soil[id]?.soil;
+    const status = classifyMoisture(soil);
+    const sec = state.secChoice[id] ?? 3;
+    const cmd = latestCmdFor(id);
+    const info = cmd ? CMD_STATUS_LABEL[cmd.status] : null;
+    const recent = cmd && cmd.created && (Date.now() - new Date(cmd.created).getTime() < 3 * 3600 * 1000);
+    const working = cmd && (cmd.status === "pending" || cmd.status === "sent");
+
+    return `<div class="card water-card ${installed ? "" : "no-pump"}">
+      <div class="card-top">
+        <span class="pot-id">${id}</span>
+        <span class="group-tag">${cfg.group}</span>
+      </div>
+      <div class="water-soil">
+        <b style="color:${STATUS_INFO[status].color}">${soil != null ? soil.toFixed(0) + "%" : "-"}</b>
+        <span>${STATUS_INFO[status].label}</span>
+      </div>
+      ${installed ? `
+        <div class="seg" role="group" aria-label="${id} 급수 시간">
+          ${SEC_OPTIONS.filter((s) => s <= maxSec).map((s) =>
+            `<button class="seg-btn ${s === sec ? "on" : ""}" data-pot="${id}" data-sec="${s}">${s}초</button>`).join("")}
+        </div>
+        <button class="btn primary water-btn" data-water="${id}" ${!canSend || working || state.busy[id] ? "disabled" : ""}>
+          ${state.busy[id] ? "보내는 중..." : `💧 ${sec}초 물 주기${mlText(id, sec)}`}
+        </button>` : `
+        <div class="no-pump-msg">펌프 아직 없음</div>`}
+      ${info && recent ? `<div class="cmd-state ${info.cls}">${info.text}
+          ${cmd.status === "pending" ? `<button class="link-btn" data-cancel="${cmd.id}">취소</button>` : ""}
+          <small>${CMD_MODE_LABEL[cmd.mode] || ""} · ${formatAgo(new Date(cmd.created))} · ${cmd.sec}초</small></div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+$("waterGrid").addEventListener("click", async (ev) => {
+  const segBtn = ev.target.closest("[data-sec]");
+  if (segBtn) {
+    state.secChoice[segBtn.dataset.pot] = Number(segBtn.dataset.sec);
+    renderWaterGrid();
+    return;
+  }
+  const cancelBtn = ev.target.closest("[data-cancel]");
+  if (cancelBtn) {
+    try { await WaterAPI.cancel(cancelBtn.dataset.cancel); }
+    catch (e) { alert(e.message); }
+    refresh();
+    return;
+  }
+  const wBtn = ev.target.closest("[data-water]");
+  if (!wBtn) return;
+  const pot = wBtn.dataset.water;
+  const sec = state.secChoice[pot] ?? 3;
+  const note = POT_CONFIG[pot].waterMode === "정해진 시각"
+    ? "\n\n(이 화분은 정해진 시각에 급수하는 실험 화분이에요. 버튼 급수는 기록에 '수동'으로 따로 남아요)"
+    : "\n\n(버튼 급수는 기록에 '수동'으로 따로 남아요)";
+  if (!confirm(`${pot} 화분에 ${sec}초 동안 물을 줄까요?${note}`)) return;
+  state.busy[pot] = true; renderWaterGrid();
+  try {
+    await WaterAPI.water(pot, sec);
+  } catch (e) {
+    alert("❌ " + e.message);
+  }
+  state.busy[pot] = false;
+  await refresh();
+  schedule();
+});
+
+/* ---------- 예약 급수 ---------- */
+const SCHED_SEC_OPTIONS = [2, 3, 5, 10, 15, 20];
+const sf = { kind: "daily", days: [new Date().getDay()] };
+
+function mlText(pot, sec) {
+  const r = (typeof PUMP_ML_PER_SEC !== "undefined" && PUMP_ML_PER_SEC[pot]) || null;
+  return r ? ` (약 ${Math.round(r * sec)} ml)` : "";
+}
+
+function initSchedForm() {
+  const pots = [...PUMP_INSTALLED, ...POT_IDS.filter((id) => !PUMP_INSTALLED.includes(id))];
+  $("sfPot").innerHTML = pots.map((id) =>
+    `<option value="${id}">${id}${PUMP_INSTALLED.includes(id) ? "" : " (펌프 없음)"}</option>`).join("");
+  $("sfDays").innerHTML = WEEKDAY_NAMES.map((n, i) =>
+    `<button type="button" class="day-chip" data-day="${i}">${n}</button>`).join("");
+  renderSchedForm();
+}
+
+function renderSchedForm() {
+  const pot = $("sfPot").value;
+  const sec = Number($("sfSec").value) || 3;
+  $("sfSec").innerHTML = SCHED_SEC_OPTIONS.map((n) =>
+    `<option value="${n}" ${n === sec ? "selected" : ""}>${n}초${mlText(pot, n)}</option>`).join("");
+  document.querySelectorAll("#sfKind .seg-btn").forEach((b) => b.classList.toggle("on", b.dataset.kind === sf.kind));
+  $("sfDays").hidden = sf.kind !== "weekly";
+  document.querySelectorAll("#sfDays .day-chip").forEach((b) => b.classList.toggle("on", sf.days.includes(Number(b.dataset.day))));
+  const canSend = WaterAPI.isConfigured() && Boolean(WaterAPI.getKey()) && Boolean(state.server);
+  $("sfAdd").disabled = !canSend;
+  const warn = [];
+  if (!PUMP_INSTALLED.includes(pot)) warn.push(`${pot} 는 아직 펌프가 없어요`);
+  if (POT_CONFIG[pot]?.waterMode === "정해진 시각") warn.push(`${pot} 는 실험용 "정해진 시각" 화분이라 예약이 더해지면 실험 조건이 바뀌어요`);
+  $("sfHint").textContent = warn.join(" · ");
+}
+
+$("sfPot").addEventListener("change", renderSchedForm);
+$("sfKind").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-kind]"); if (!b) return;
+  sf.kind = b.dataset.kind; renderSchedForm();
+});
+$("sfDays").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-day]"); if (!b) return;
+  const d = Number(b.dataset.day);
+  sf.days = sf.days.includes(d) ? sf.days.filter((x) => x !== d) : [...sf.days, d].sort();
+  renderSchedForm();
+});
+$("sfAdd").addEventListener("click", async () => {
+  const pot = $("sfPot").value, at = $("sfAt").value, sec = Number($("sfSec").value);
+  if (!/^\d{2}:\d{2}$/.test(at)) return alert("시각을 골라 주세요");
+  if (sf.kind === "weekly" && !sf.days.length) return alert("요일을 하나 이상 골라 주세요");
+  const desc = describeSchedule({ kind: sf.kind, days: sf.days.join(","), at });
+  if (!confirm(`${pot} 화분: ${desc}에 ${sec}초 물 주기를 예약할까요?`)) return;
+  $("sfAdd").disabled = true;
+  try { await WaterAPI.addSchedule(pot, sf.kind, sf.days, at, sec); }
+  catch (e) { alert("❌ " + e.message); }
+  await refresh();
+});
+
+function renderSchedList() {
+  const list = state.server?.schedules || [];
+  const canSend = WaterAPI.isConfigured() && Boolean(WaterAPI.getKey()) && Boolean(state.server);
+  if (!list.length) {
+    $("schedList").innerHTML = `<div class="chart-empty" style="height:64px">아직 예약이 없어요</div>`;
+    return;
+  }
+  const sorted = [...list].sort((a, b) => a.pot.localeCompare(b.pot) || a.at.localeCompare(b.at));
+  $("schedList").innerHTML = sorted.map((x) => `
+    <div class="sched-row ${x.enabled ? "" : "off"}">
+      <b class="pot-id">${escapeHtml(x.pot)}</b>
+      <div class="sched-main">
+        <div class="sched-desc">${escapeHtml(describeSchedule(x))} · <b>${x.sec}초</b>${mlText(x.pot, x.sec)}</div>
+        <div class="hint-line">${x.enabled
+          ? (x.next_run ? `다음: ${formatTime(new Date(x.next_run))}` : "")
+          : "꺼짐"}${x.last_run ? ` · 마지막: ${formatTime(new Date(x.last_run))}` : ""}</div>
+      </div>
+      <label class="switch" title="예약 켜기/끄기">
+        <input type="checkbox" data-stoggle="${escapeHtml(x.id)}" ${x.enabled ? "checked" : ""} ${canSend ? "" : "disabled"}>
+        <span class="slider"></span>
+      </label>
+      <button class="btn small-btn" data-sdel="${escapeHtml(x.id)}" ${canSend ? "" : "disabled"} title="삭제">삭제</button>
+    </div>`).join("");
+}
+
+$("schedList").addEventListener("change", async (ev) => {
+  const id = ev.target.dataset.stoggle; if (!id) return;
+  try { await WaterAPI.toggleSchedule(id, ev.target.checked); }
+  catch (e) { alert("❌ " + e.message); }
+  await refresh();
+});
+$("schedList").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-sdel]"); if (!b) return;
+  if (!confirm("이 예약을 지울까요?")) return;
+  try { await WaterAPI.deleteSchedule(b.dataset.sdel); }
+  catch (e) { alert("❌ " + e.message); }
+  await refresh();
+});
+
+/* ---------- 내 기준 자동 급수 ---------- */
+function settingFor(id) {
+  const s = state.server?.settings?.[id] || {};
+  return {
+    user_auto: s.user_auto === true,
+    threshold_pct: Number(s.threshold_pct ?? 35),
+    dose_sec: Number(s.dose_sec ?? 3),
+    min_gap_min: Number(s.min_gap_min ?? 120),
+    raw_threshold: s.raw_threshold === "" || s.raw_threshold == null ? null : Number(s.raw_threshold),
+    updated: s.updated ? new Date(s.updated) : null,
+  };
+}
+
+function renderAutoList() {
+  const canSend = WaterAPI.isConfigured() && Boolean(WaterAPI.getKey()) && Boolean(state.server);
+  $("autoList").innerHTML = POT_IDS.map((id) => {
+    const cfg = POT_CONFIG[id];
+    const saved = settingFor(id);
+    const d = { ...saved, ...(state.autoDraft[id] || {}) };
+    const dirty = Boolean(state.autoDraft[id]);
+    const installed = PUMP_INSTALLED.includes(id);
+    const isStatic = cfg.waterMode === "정해진 시각";
+    return `<div class="auto-row ${d.user_auto ? "on" : ""}" data-pot="${id}">
+      <div class="auto-head">
+        <div>
+          <b class="pot-id">${id}</b>
+          <span class="group-tag">${cfg.group}</span>
+          ${installed ? "" : `<span class="group-tag muted-tag">펌프 없음</span>`}
+        </div>
+        <label class="switch" title="내 기준 자동 급수 켜기/끄기">
+          <input type="checkbox" data-field="user_auto" ${d.user_auto ? "checked" : ""} ${canSend ? "" : "disabled"}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="auto-now">${d.user_auto
+        ? `🤖 수분이 <b>${d.threshold_pct}%</b> 아래로 내려가면 <b>${d.dose_sec}초</b>${mlText(id, d.dose_sec)} 급수, 그 뒤 <b>${d.min_gap_min}분</b> 기다림`
+        : `기본 실험 규칙: <b>${cfg.waterMode}</b>`}</div>
+      ${d.user_auto ? `
+        <div class="auto-fields">
+          <label>기준 수분 (%)<input type="number" inputmode="numeric" min="5" max="90" step="1" data-field="threshold_pct" value="${d.threshold_pct}"></label>
+          <label>한 번에 (초)<input type="number" inputmode="numeric" min="1" max="20" step="1" data-field="dose_sec" value="${d.dose_sec}"></label>
+          <label>급수 후 대기 (분)<input type="number" inputmode="numeric" min="30" max="1440" step="10" data-field="min_gap_min" value="${d.min_gap_min}"></label>
+        </div>
+        ${isStatic
+          ? `<div class="alert warning small">⚠️ ${id} 는 "정해진 시각" 실험 화분이에요. 켜 두면 이 화분은 실험 조건이 바뀌어요.</div>`
+          : `<div class="hint-line">공정한 비교를 위해 A·C 화분은 같은 기준으로 맞추는 걸 추천해요.</div>`}` : ""}
+      <div class="auto-foot">
+        <span class="hint-line">${saved.raw_threshold != null && saved.user_auto ? `센서값 ${saved.raw_threshold} 이상이면 급수 · ` : ""}${saved.updated ? `저장 ${formatAgo(saved.updated)}` : ""}</span>
+        ${dirty ? `<span class="btn-pair"><button class="btn" data-revert="${id}">되돌리기</button>
+          <button class="btn primary" data-save="${id}" ${canSend ? "" : "disabled"}>저장</button></span>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("autoList").addEventListener("change", (ev) => {
+  const row = ev.target.closest(".auto-row");
+  const field = ev.target.dataset.field;
+  if (!row || !field) return;
+  const id = row.dataset.pot;
+  const draft = { ...settingFor(id), ...(state.autoDraft[id] || {}) };
+  draft[field] = field === "user_auto" ? ev.target.checked : Number(ev.target.value);
+  state.autoDraft[id] = draft;
+  renderAutoList();
+});
+
+$("autoList").addEventListener("click", async (ev) => {
+  const rv = ev.target.closest("[data-revert]");
+  if (rv) { delete state.autoDraft[rv.dataset.revert]; renderAutoList(); return; }
+  const sv = ev.target.closest("[data-save]");
+  if (!sv) return;
+  const id = sv.dataset.save;
+  const d = state.autoDraft[id];
+  if (!d) return;
+  if (d.user_auto && POT_CONFIG[id].waterMode === "정해진 시각" &&
+      !confirm(`${id} 는 정해진 시각에 급수하는 실험 화분이에요.\n내 기준 자동 급수를 켜면 실험 조건이 바뀌어요. 그래도 켤까요?`)) return;
+  sv.disabled = true; sv.textContent = "저장 중...";
+  try {
+    await WaterAPI.saveSetting(id, d);
+    delete state.autoDraft[id];
+  } catch (e) {
+    alert("❌ " + e.message);
+  }
+  await refresh();
+});
+
+/* ---------- 기록 ---------- */
+function renderCmdList() {
+  const cmds = state.server?.cmds || [];
+  $("cmdCount").textContent = cmds.length ? `최근 ${Math.min(cmds.length, 10)}개` : "";
+  if (!cmds.length) {
+    $("cmdList").innerHTML = `<div class="chart-empty" style="height:60px">아직 앱에서 보낸 급수가 없어요</div>`;
+    return;
+  }
+  $("cmdList").innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>시각</th><th>화분</th><th>방식</th><th>시간</th><th>상태</th></tr></thead>
+    <tbody>${cmds.slice(0, 10).map((c) => {
+      const info = CMD_STATUS_LABEL[c.status] || { text: c.status };
+      return `<tr><td>${formatTime(c.created ? new Date(c.created) : null)}</td><td><b>${escapeHtml(c.pot)}</b></td>
+        <td>${CMD_MODE_LABEL[c.mode] || "👆 버튼"}</td><td>${c.sec}초</td><td>${info.text}${c.result && c.status !== "done" ? ` <small>(${escapeHtml(c.result)})</small>` : ""}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+function renderPumpLog() {
+  const wrap = $("pumpLogWrap");
+  if (!isConfigured()) { wrap.innerHTML = `<div class="chart-empty">config.js 에 시트 ID 를 넣으면 기록이 보여요</div>`; return; }
+  if (!state.pumpLog) { wrap.innerHTML = `<div class="chart-empty">불러오는 중...</div>`; return; }
+  if (state.pumpLog.error) { wrap.innerHTML = `<div class="chart-empty">${escapeHtml(state.pumpLog.error)}</div>`; return; }
+  if (state.pumpLog.missing) { wrap.innerHTML = `<div class="chart-empty">시트에 pump_log 탭이 아직 없어요 (새 펌웨어가 처음 물을 주면 생겨요)</div>`; return; }
+  const rows = state.pumpLog.rows.slice(0, 40);
+  if (!rows.length) { wrap.innerHTML = `<div class="chart-empty">아직 급수 기록이 없어요</div>`; return; }
+  wrap.innerHTML = `<table class="data-table">
+    <thead><tr><th>시각</th><th>화분</th><th>방식</th><th>결과</th><th>시간</th><th>물 양</th><th>그때 수분</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      <td>${formatTime(r.time)}</td>
+      <td><b>${escapeHtml(r.pot)}</b></td>
+      <td>${escapeHtml(PUMP_MODE_LABEL[r.mode] || r.mode || "-")}</td>
+      <td>${escapeHtml(pumpResultLabel(r.result))}</td>
+      <td>${r.ms != null ? (r.ms / 1000).toFixed(1) + "초" : "-"}</td>
+      <td>${r.ml != null ? r.ml.toFixed(0) + " ml" : "-"}</td>
+      <td>${r.soilPct != null ? r.soilPct.toFixed(0) + "%" : r.soilRaw != null ? "센서 " + r.soilRaw : "-"}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+function renderAll() {
+  renderStatus();
+  renderAlerts();
+  renderWaterGrid();
+  renderSchedForm();
+  renderSchedList();
+  renderAutoList();
+  renderCmdList();
+  renderPumpLog();
+}
+
+/* ---------- 불러오기 ---------- */
+async function refresh() {
+  const jobs = [];
+  jobs.push((async () => {
+    try { state.soil = await fetchLatestByPot(); }
+    catch (e) { if (!isConfigured()) state.soil = getDemoLatest(); }
+  })());
+  if (WaterAPI.isConfigured()) {
+    jobs.push((async () => {
+      try { state.server = await WaterAPI.status(); state.serverError = null; }
+      catch (e) { state.serverError = e.message; }
+    })());
+  }
+  if (isConfigured()) {
+    jobs.push((async () => {
+      try { state.pumpLog = await fetchPumpLog(120); }
+      catch (e) { state.pumpLog = { error: e.message, rows: [] }; }
+    })());
+  }
+  await Promise.all(jobs);
+  renderAll();
+}
+
+// 처리 중인 명령이 있으면 10초마다, 없으면 설정한 간격마다 새로고침. 자동 급수 설정을 고치는 중이면 잠깐 멈춤
+let timer = null;
+function schedule() {
+  clearTimeout(timer);
+  const working = (state.server?.cmds || []).some((c) => c.status === "pending" || c.status === "sent");
+  const sec = working ? 10 : Math.max(15, settings.refreshSec);
+  timer = setTimeout(async () => {
+    if (!Object.keys(state.autoDraft).length) await refresh();
+    schedule();
+  }, sec * 1000);
+}
+
+$("refreshBtn").addEventListener("click", () => refresh().then(schedule));
+renderKeyPanel();
+initSchedForm();
+renderAll();
+refresh().then(schedule);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refresh().then(schedule);
+});
+$("footerText").textContent = "방울톡톡 · 예약·수분 기준은 서버가 판단하고, 실제 급수와 안전장치는 ESP32 가 해요 (한 번에 펌프 하나, 최대 20초, 하루 상한)";
+</script>
+</body>
+</html>

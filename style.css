@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
 
 body {
@@ -310,4 +311,90 @@ footer { margin: 22px auto 0; font-size: 12px; color: var(--ink-3); text-align: 
   .group-tag { font-size: 10px; padding: 2px 6px; }
   .gauge { max-width: 112px; }
   .records-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- 급수 관리 ---------- */
+.key-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.key-row input {
+  flex: 1 1 200px; font: inherit; font-size: 16px; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+}
+.dev { font-size: 12.5px; }
+.dev.on { color: var(--good-ink); }
+.dev.off { color: var(--ink-3); }
+.opt-tag { font-size: 12px; font-weight: 600; color: var(--brand); background: var(--brand-soft); padding: 2px 8px; border-radius: 10px; vertical-align: 3px; }
+
+.water-grid { margin-bottom: 8px; }
+.water-card { display: flex; flex-direction: column; gap: 8px; }
+.water-card.no-pump { opacity: .72; }
+.water-soil { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 2px; }
+.water-soil b { font-size: 26px; }
+.water-soil span { font-size: 12.5px; color: var(--ink-2); }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: #f1f0ec; padding: 3px; border-radius: 10px; }
+.seg-btn { border: 0; background: transparent; border-radius: 8px; padding: 7px 0; font-size: 13px; cursor: pointer; color: var(--ink-2); min-height: 34px; }
+.seg-btn.on { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.water-btn { width: 100%; min-height: 44px; font-size: 15px; font-weight: 700; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.no-pump-msg { font-size: 13px; color: var(--ink-3); padding: 12px 0; border: 1px dashed var(--line); border-radius: 10px; }
+.cmd-state { font-size: 12.5px; border-radius: 10px; padding: 7px 8px; line-height: 1.5; }
+.cmd-state small { display: block; color: var(--ink-3); font-size: 11.5px; }
+.cmd-state.wait { background: #e8f0fb; color: #1c4f94; }
+.cmd-state.done { background: var(--good-bg); color: var(--good-ink); }
+.cmd-state.warn { background: var(--warning-bg); color: var(--warning-ink); }
+.cmd-state.bad { background: var(--critical-bg); color: var(--critical-ink); }
+.cmd-state.muted { background: #f2f1ee; color: var(--ink-3); }
+.link-btn { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: 12.5px; padding: 0 4px; }
+
+.auto-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.auto-row { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.auto-row.on { border-color: #9fd09f; box-shadow: 0 0 0 1px #9fd09f inset; }
+.auto-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.auto-head > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.muted-tag { background: #f2f1ee; color: var(--ink-3); }
+.auto-now { font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+.auto-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.auto-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.auto-fields input { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff; width: 100%; text-align: right; }
+.auto-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; }
+.btn-pair { display: inline-flex; gap: 6px; }
+.hint-line { font-size: 12px; color: var(--ink-3); }
+.alert.small { font-size: 12.5px; padding: 8px 10px; }
+
+.switch { position: relative; display: inline-block; width: 50px; height: 28px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: #d5d4cf; border-radius: 28px; transition: background .15s; cursor: pointer; }
+.switch .slider::before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.switch input:checked + .slider { background: var(--good); }
+.switch input:checked + .slider::before { transform: translateX(22px); }
+.switch input:disabled + .slider { opacity: .5; cursor: not-allowed; }
+.switch input:focus-visible + .slider { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+@media (max-width: 560px) {
+  .auto-list { grid-template-columns: 1fr; }
+  .water-soil b { font-size: 22px; }
+  .seg-btn { font-size: 12px; }
+}
+
+/* ---------- 예약 급수 ---------- */
+.sched-form { margin-bottom: 10px; }
+.sched-grid { display: grid; grid-template-columns: 1fr 1.2fr 1fr 1.2fr; gap: 10px; }
+.sched-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.sched-grid select, .sched-grid input {
+  font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: #fff; width: 100%; min-height: 40px;
+}
+.seg-2 { grid-template-columns: 1fr 1fr; }
+.day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.day-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; min-width: 42px; min-height: 36px; font-size: 14px; cursor: pointer; color: var(--ink-2); }
+.day-chip.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+.sched-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; }
+.sched-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.sched-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; }
+.sched-row.off { opacity: .6; }
+.sched-desc { font-size: 14px; }
+.small-btn { min-height: 34px; padding: 6px 10px; font-size: 13px; }
+@media (max-width: 560px) {
+  .sched-grid { grid-template-columns: 1fr 1fr; }
+  .sched-row { grid-template-columns: auto 1fr auto; }
+  .sched-row .small-btn { grid-column: 2 / -1; justify-self: end; }
 }
