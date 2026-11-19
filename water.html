@@ -22,9 +22,10 @@
   </div>
 
   <h1>🚿 급수 관리</h1>
-  <p class="desc">물 주는 방법 4가지: <b>지금 바로</b> · <b>매일 몇 시</b> · <b>매주 무슨 요일 몇 시</b> · <b>수분이 몇 % 아래면</b>. 모두 원할 때만 켜요.</p>
+  <p class="desc">물 주는 방법 3가지: <b>💧 지금 바로(내가 직접)</b> · <b>⏰ 예약</b> · <b>🤖 수분 기준</b>. 예약과 수분 기준은 화분마다 켜고 끌 수 있어요.</p>
   <div class="jump-links">
     <a class="pill-link" href="#sec-now">💧 지금 주기</a>
+    <a class="pill-link" href="#sec-switch">🎛️ 켜고 끄기</a>
     <a class="pill-link" href="#sec-schedule">⏰ 예약</a>
     <a class="pill-link" href="#sec-auto">🤖 수분 기준</a>
     <a class="pill-link" href="#sec-log">📋 기록</a>
@@ -59,9 +60,17 @@
   <p class="desc">누르면 ESP32 가 1분 안에 받아서 물을 줘요. 펌프는 한 번에 하나만, 한 번에 최대 <span id="maxSecText">20</span>초예요.</p>
   <div class="grid water-grid" id="waterGrid"></div>
 
+  <!-- 자동 급수 켜고 끄기 -->
+  <h2 class="section-title" id="sec-switch">🎛️ 자동 급수 켜고 끄기</h2>
+  <p class="desc">
+    화분마다 <b>⏰ 예약 급수</b>와 <b>🤖 수분 기준 급수</b>를 따로 켜고 꺼요. 둘 다 끄면 내가 버튼으로 줄 때만 물이 나와요.
+    보드가 마지막 상태를 기억해서 인터넷이 끊겨도 그대로 지켜요 (보드에 1분 안에 전달).
+  </p>
+  <div class="sw-list" id="switchList"></div>
+
   <!-- 예약 급수 -->
   <h2 class="section-title" id="sec-schedule">⏰ 예약 급수 <small class="opt-tag">원할 때만</small></h2>
-  <p class="desc">매일 정한 시각에, 또는 매주 고른 요일·시각에 정한 만큼 물을 줘요. 예약마다 켜고 끌 수 있어요.</p>
+  <p class="desc">매일 정한 시각에, 또는 매주 고른 요일·시각에 정한 만큼 물을 줘요. 그 화분의 <b>⏰ 예약 급수</b>가 켜져 있을 때만 동작해요.</p>
   <div class="panel sched-form" id="schedForm">
     <div class="sched-grid">
       <label>화분<select id="sfPot"></select></label>
@@ -83,10 +92,10 @@
   <div class="sched-list" id="schedList"></div>
 
   <!-- 내 기준 자동 급수 -->
-  <h2 class="section-title" id="sec-auto">🤖 수분 기준 급수 <small class="opt-tag">원할 때만</small></h2>
+  <h2 class="section-title" id="sec-auto">🤖 수분 기준을 내가 정하기 <small class="opt-tag">원할 때만</small></h2>
   <p class="desc">
-    수분이 정한 % 아래로 내려가면 물을 줘요. 10분마다 올라오는 센서값으로 판단해요 (인터넷 필요).
-    꺼 두면 실험 규칙대로 동작해요 (A·C = 흙이 마르면, B·D = 정해진 시각).
+    수분 기준 급수가 켜진 화분은 기본으로 <b>보드의 실험 기준</b>(A·C: 흙이 마르면 80ml)으로 판단해요.
+    여기서 켜면 그 대신 <b>내가 정한 %</b>로 판단해요 (10분마다 올라오는 센서값, 인터넷 필요).
   </p>
   <div class="auto-list" id="autoList"></div>
 
@@ -335,9 +344,11 @@ function renderSchedList() {
       <b class="pot-id">${escapeHtml(x.pot)}</b>
       <div class="sched-main">
         <div class="sched-desc">${escapeHtml(describeSchedule(x))} · <b>${x.sec}초</b>${mlText(x.pot, x.sec)}</div>
-        <div class="hint-line">${x.enabled
-          ? (x.next_run ? `다음: ${formatTime(new Date(x.next_run))}` : "")
-          : "꺼짐"}${x.last_run ? ` · 마지막: ${formatTime(new Date(x.last_run))}` : ""}</div>
+        <div class="hint-line">${settingFor(x.pot).sched_on === false
+          ? "⚠️ 이 화분의 ⏰ 예약 급수가 꺼져 있어 동작 안 함"
+          : x.enabled
+            ? (x.next_run ? `다음: ${formatTime(new Date(x.next_run))}` : "")
+            : "꺼짐"}${x.last_run ? ` · 마지막: ${formatTime(new Date(x.last_run))}` : ""}</div>
       </div>
       <label class="switch" title="예약 켜기/끄기">
         <input type="checkbox" data-stoggle="${escapeHtml(x.id)}" ${x.enabled ? "checked" : ""} ${canSend ? "" : "disabled"}>
@@ -361,11 +372,82 @@ $("schedList").addEventListener("click", async (ev) => {
   await refresh();
 });
 
+/* ---------- 자동 급수 켜고 끄기 (예약 / 수분 기준 큰 스위치) ---------- */
+const BOARD_STATIC_TEXT = "매일 08:00 · 80ml";
+const BOARD_SENSOR_TEXT = "흙이 마르면 80ml (08~18시)";
+state.swBusy = {};
+
+function switchSub(id, kind, s) {
+  const isStatic = POT_CONFIG[id].waterMode === "정해진 시각";
+  if (kind === "sched") {
+    const n = (state.server?.schedules || []).filter((x) => x.pot === id && x.enabled).length;
+    const parts = [];
+    if (isStatic) parts.push(`보드 기본 ${BOARD_STATIC_TEXT}`);
+    if (n) parts.push(`내 예약 ${n}개`);
+    return parts.length ? parts.join(" + ") : "아직 예약 없음 (아래에서 추가)";
+  }
+  if (s.user_auto) return `내가 정한 ${s.threshold_pct}% 기준`;
+  return isStatic ? "기본 기준 없음 (아래에서 % 를 정하면 동작)" : `보드 기본 ${BOARD_SENSOR_TEXT}`;
+}
+
+function renderSwitchList() {
+  const canSend = WaterAPI.isConfigured() && Boolean(WaterAPI.getKey()) && Boolean(state.server);
+  $("switchList").innerHTML = POT_IDS.map((id) => {
+    const cfg = POT_CONFIG[id];
+    const s = settingFor(id);
+    const installed = PUMP_INSTALLED.includes(id);
+    const busy = state.swBusy[id];
+    const sw = (kind, on, icon, label) => `
+      <div class="sw-item ${on ? "on" : ""}">
+        <div class="sw-text">
+          <b>${icon} ${label}</b>
+          <span class="hint-line">${on ? escapeHtml(switchSub(id, kind, s)) : "꺼짐 — 이 방식으로는 물을 안 줘요"}</span>
+        </div>
+        <label class="switch" title="${label} 켜기/끄기">
+          <input type="checkbox" data-sw="${kind}" data-pot="${id}" ${on ? "checked" : ""} ${canSend && !busy ? "" : "disabled"}>
+          <span class="slider"></span>
+        </label>
+      </div>`;
+    const allOff = !s.sched_on && !s.sensor_on;
+    return `<div class="sw-row">
+      <div class="sw-head">
+        <b class="pot-id">${id}</b>
+        <span class="group-tag">${cfg.group}</span>
+        ${installed ? "" : `<span class="group-tag muted-tag">펌프 없음</span>`}
+        ${allOff ? `<span class="group-tag manual-tag">👆 수동만</span>` : ""}
+      </div>
+      ${sw("sched", s.sched_on, "⏰", "예약 급수")}
+      ${sw("sensor", s.sensor_on, "🤖", "수분 기준 급수")}
+    </div>`;
+  }).join("");
+}
+
+$("switchList").addEventListener("change", async (ev) => {
+  const kind = ev.target.dataset.sw; const id = ev.target.dataset.pot;
+  if (!kind || !id) return;
+  const on = ev.target.checked;
+  const label = kind === "sched" ? "예약 급수" : "수분 기준 급수";
+  const msg = on
+    ? `${id} 화분의 ${label}를 켤까요?`
+    : `${id} 화분의 ${label}를 끌까요?\n\n끄면 이 방식으로는 물을 주지 않아요. 실험 중이라면 다른 화분과 조건이 달라질 수 있어요.`;
+  if (!confirm(msg)) { ev.target.checked = !on; return; }
+  state.swBusy[id] = true; renderSwitchList();
+  try {
+    await WaterAPI.saveSwitch(id, kind === "sched" ? { sched_on: on } : { sensor_on: on });
+  } catch (e) {
+    alert("❌ " + e.message);
+  }
+  state.swBusy[id] = false;
+  await refresh();
+});
+
 /* ---------- 내 기준 자동 급수 ---------- */
 function settingFor(id) {
   const s = state.server?.settings?.[id] || {};
   return {
     user_auto: s.user_auto === true,
+    sched_on: s.sched_on !== false,
+    sensor_on: s.sensor_on !== false,
     threshold_pct: Number(s.threshold_pct ?? 35),
     dose_sec: Number(s.dose_sec ?? 3),
     min_gap_min: Number(s.min_gap_min ?? 120),
@@ -390,14 +472,15 @@ function renderAutoList() {
           <span class="group-tag">${cfg.group}</span>
           ${installed ? "" : `<span class="group-tag muted-tag">펌프 없음</span>`}
         </div>
-        <label class="switch" title="내 기준 자동 급수 켜기/끄기">
+        <label class="switch" title="내가 정한 % 로 판단하기">
           <input type="checkbox" data-field="user_auto" ${d.user_auto ? "checked" : ""} ${canSend ? "" : "disabled"}>
           <span class="slider"></span>
         </label>
       </div>
       <div class="auto-now">${d.user_auto
         ? `🤖 수분이 <b>${d.threshold_pct}%</b> 아래로 내려가면 <b>${d.dose_sec}초</b>${mlText(id, d.dose_sec)} 급수, 그 뒤 <b>${d.min_gap_min}분</b> 기다림`
-        : `기본 실험 규칙: <b>${cfg.waterMode}</b>`}</div>
+        : (isStatic ? `꺼짐 — 이 화분은 기본 센서 기준이 없어요` : `꺼짐 — 보드 기본 기준(${BOARD_SENSOR_TEXT})으로 판단`)}</div>
+      ${!saved.sensor_on ? `<div class="hint-line">⚠️ 위에서 이 화분의 🤖 수분 기준 급수가 꺼져 있어서 지금은 동작하지 않아요</div>` : ""}
       ${d.user_auto ? `
         <div class="auto-fields">
           <label>기준 수분 (%)<input type="number" inputmode="numeric" min="5" max="90" step="1" data-field="threshold_pct" value="${d.threshold_pct}"></label>
@@ -489,6 +572,7 @@ function renderAll() {
   renderStatus();
   renderAlerts();
   renderWaterGrid();
+  renderSwitchList();
   renderSchedForm();
   renderSchedList();
   renderAutoList();

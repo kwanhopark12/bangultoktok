@@ -69,6 +69,7 @@ const WaterAPI = {
   addSchedule(pot, kind, days, at, sec) { return this.post({ a: "schedule_add", pot, kind, days, at, sec }); },
   toggleSchedule(id, enabled) { return this.post({ a: "schedule_toggle", id, enabled: Boolean(enabled) }); },
   deleteSchedule(id) { return this.post({ a: "schedule_delete", id }); },
+  saveSwitch(pot, patch) { return this.post({ a: "switch", pot, ...patch }); },
   saveSetting(pot, s) {
     return this.post({
       a: "settings", pot,

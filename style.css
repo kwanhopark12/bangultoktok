@@ -398,3 +398,14 @@ footer { margin: 22px auto 0; font-size: 12px; color: var(--ink-3); text-align: 
   .sched-row { grid-template-columns: auto 1fr auto; }
   .sched-row .small-btn { grid-column: 2 / -1; justify-self: end; }
 }
+
+/* ---------- 자동 급수 켜고 끄기 ---------- */
+.sw-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.sw-row { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.sw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px; }
+.sw-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.sw-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sw-text b { font-size: 14px; }
+.sw-item:not(.on) .sw-text b { color: var(--ink-3); }
+.manual-tag { background: #e8f0fb; color: #1c4f94; }
+@media (max-width: 560px) { .sw-list { grid-template-columns: 1fr; } }
