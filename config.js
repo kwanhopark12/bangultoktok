@@ -31,11 +31,11 @@ const CONFIG = {
 
 // 펌프가 실제로 연결된 화분 (여기 있는 화분만 "물 주기" 버튼이 켜져요)
 // 펌프를 더 달면 여기에 추가하세요.  예) ["A1", "A2", "B1", "B2"]
-const PUMP_INSTALLED = ["A1", "A2"];
+const PUMP_INSTALLED = ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2"];
 
 // 펌프 1초에 나오는 물 양 (ml). 재 보면 적어 주세요 → 화면에 "약 몇 ml" 로 같이 보여줘요.
 //   재는 법: 5초·15초 돌려서 컵 무게(g) 재기 → (15초 무게 − 5초 무게) ÷ 10
-const PUMP_ML_PER_SEC = { A1: null, A2: null };
+const PUMP_ML_PER_SEC = { A1: null, A2: null, B1: null, B2: null, C1: null, C2: null, D1: null, D2: null };
 
 // 화분별 고정 실험 설정 (2×2: LED 보광 × 급수 방식)
 //   A/B = LED 보광 구역, C/D = 자연광 구역
